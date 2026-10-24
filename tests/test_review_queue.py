@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 import pytest
 from loopledger import ledger
+from loopledger.schemas import Prediction
 from streamlit.testing.v1 import AppTest
 
 
@@ -35,13 +36,64 @@ def fill_review(app, reviewer="alice", reason="Verified the application document
     app.text_area[0].input(reason)
 
 
+def application_text(app):
+    return " ".join(str(item.value) for kind in ("markdown", "text", "caption", "metric")
+                    for item in app.get(kind))
+
+
+def test_application_details_decode_credit_finances_and_employment_without_writes():
+    pred = Prediction("DETAILS", {
+        "credit_amount": 3000, "duration": 24, "age": 35,
+        "purpose": "A41", "credit_history": "A33", "checking_status": "A11",
+        "savings_status": "A65", "employment": "A74", "existing_credits": 2,
+        "installment_commitment": 4, "other_parties": "A103", "housing": "A151",
+        "property_magnitude": "A124", "other_payment_plans": "A141", "num_dependents": 0,
+        "identity_verified": False, "gold_correct_decision": "PRIVATE-ANSWER",
+    }, "approve", .6, [])
+    ledger.log_event("prediction", asdict(pred))
+    before = ledger.get_all_events()
+    app = AppTest.from_file(str(PAGE)).run()
+    assert not app.exception
+    rendered = application_text(app)
+    for label in ("Loan purpose", "Credit history", "Checking account", "Savings / bonds",
+                  "Employment tenure", "Existing credits at this bank",
+                  "Other debtors / guarantors", "Housing", "Property", "Other installment plans",
+                  "People financially supported"):
+        assert label in rendered
+    for value in ("Used car", "Prior repayment delays", "Balance below 0 DM",
+                  "Unknown / no savings account", "4 to less than 7 years", "Guarantor",
+                  "Rented housing", "Unknown / no property", "Bank installment plan"):
+        assert value in rendered
+    assert "Installment burden" not in rendered
+    assert "Code 4" not in rendered
+    assert "4%" not in rendered
+    assert "PRIVATE-ANSWER" not in rendered
+    assert "gold_correct_decision" not in rendered
+    assert ledger.get_all_events() == before
+    assert ledger.get_pending_reviews() == [pred]
+
+
+def test_application_details_keep_missing_unknown_and_zero_values_distinct():
+    pred = Prediction("SPARSE-DETAILS", {"purpose": "A999", "checking_status": "",
+                                       "existing_credits": 0}, "reject", .6, [])
+    ledger.log_event("prediction", asdict(pred))
+    app = AppTest.from_file(str(PAGE)).run()
+    assert not app.exception
+    rendered = application_text(app)
+    assert "Unknown category: A999" in rendered
+    assert "Not provided" in rendered
+    assert any(item.value == "0" for item in app.text)
+    assert "Unknown / no savings account" not in rendered
+    assert "No checking account" not in rendered
+
+
 def test_case_selection_shows_public_details_and_never_gold_metadata():
     app = open_page()
     assert len(app.selectbox[0].options) == 5
     selected = app.selectbox[0].options[-1]
     app.selectbox[0].select(selected).run()
     assert not app.exception
-    assert app.session_state["rq_active_case_id"] == selected
+    assert app.session_state["rq_active_case_id"] == selected.removeprefix("🟨 GOLD · ")
     assert any(item.value == "94%" for item in app.metric)
     rendered = " ".join(
         str(item.value)
@@ -53,7 +105,9 @@ def test_case_selection_shows_public_details_and_never_gold_metadata():
     assert "gold_correct_decision" not in rendered
     assert not app.json, "Do not dump internal Prediction objects to the review UI."
     assert len(app.get("plotly_chart")) == 1
-    assert not button(app, "Modify / hold").disabled
+    assert {item.label for item in app.button} == {
+        "Refresh queue", "Approve application", "Reject application"
+    }
 
 
 @pytest.mark.parametrize("reviewer,reason", [("   ", "Checked."), ("alice", " \n ")])

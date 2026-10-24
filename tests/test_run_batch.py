@@ -57,7 +57,7 @@ def test_saved_batch_counts_routes_and_preserves_results_on_rerun():
     assert len(app.dataframe[0].value) == 8
     pending = ledger.get_pending_reviews()
     assert len(pending) == 8
-    assert all(not case.is_gold for case in pending)
+    assert sum(case.is_gold for case in pending) == 1
     ids = [case.case_id for case in pending]
     app.run()
     assert not app.exception

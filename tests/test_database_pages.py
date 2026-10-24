@@ -79,10 +79,10 @@ def test_default_real_batch_persists_and_new_session_can_review():
     assert len(review.selectbox[0].options) == 3
     review.text_input(key="rq_reviewer").input("alice")
     review.text_area[0].input("Checked the documents and identity evidence.")
-    click(review, "Modify / hold")
+    click(review, "Reject application")
     events = ledger.get_all_events()
     assert len(events) == 7
-    assert events[-1]["payload"]["action"] == "modify"
+    assert events[-1]["payload"]["action"] == "reject"
     assert len(ledger.get_pending_reviews()) == 2
     review.run()
     assert len(ledger.get_all_events()) == 7
@@ -106,9 +106,9 @@ def test_default_real_batch_persists_and_new_session_can_review():
 
 
 @pytest.mark.parametrize("label,action", [
-    ("Approve application", "approve"), ("Reject application", "reject"), ("Modify / hold", "modify"),
+    ("Approve application", "approve"), ("Reject application", "reject"),
 ])
-def test_database_review_sparse_controls_hide_metadata_and_preserve_failed_draft(label, action):
+def test_database_review_sparse_controls_show_gold_marker_hide_answers_and_preserve_failed_draft(label, action):
     pred = get_gold_cases(1, include_answers=True)[0]
     ledger.log_event("prediction", asdict(pred))
     app = page("2_Review_Queue.py")
@@ -119,7 +119,8 @@ def test_database_review_sparse_controls_hide_metadata_and_preserve_failed_draft
         str(item.value) for kind in ("caption", "markdown", "info", "warning", "text")
         for item in app.get(kind)
     )
-    assert "GOLD" not in rendered
+    assert app.selectbox[0].options[0].startswith("🟨 GOLD · ")
+    assert "is_gold" not in rendered
     assert "gold_correct_decision" not in rendered
     app.text_input(key="rq_reviewer").input("reviewer")
     app.text_area[0].input("Identity evidence checked carefully.")
@@ -131,8 +132,6 @@ def test_database_review_sparse_controls_hide_metadata_and_preserve_failed_draft
     click(app, label)
     assert ledger.get_all_events()[-1]["payload"]["action"] == action
     assert not ledger.get_pending_reviews()
-    if action == "modify":
-        assert metrics.reviewer_stats().iloc[0]["gold_catch_rate"] == 1.0
 
 
 def test_partial_gate_write_is_pending_and_never_reported_as_automatic():

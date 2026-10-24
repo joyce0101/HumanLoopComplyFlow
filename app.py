@@ -82,8 +82,8 @@ def main() -> None:
     st.table([
         {"Workspace": "Run Batch", "Available now": "Model predictions, risk gate and persisted routing",
          "Scope": "German Credit dataset; no loan transactions are executed"},
-        {"Workspace": "Review Queue", "Available now": "Database queue; approve, reject or modify / hold with audit events",
-         "Scope": "Modify records a request; it does not edit loan terms"},
+        {"Workspace": "Review Queue", "Available now": "Database queue; approve or reject with audit events",
+         "Scope": "Records review decisions; no loan transactions are executed"},
         {"Workspace": "Oversight Dashboard", "Available now": "B's persisted system and reviewer metrics",
          "Scope": "Heuristic indicators; small samples remain insufficient"},
         {"Workspace": "Compliance", "Available now": "B's chain verification and D's Markdown / JSON reports",
