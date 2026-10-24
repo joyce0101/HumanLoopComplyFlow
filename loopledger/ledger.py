@@ -80,7 +80,7 @@ def _finite_number(value, name: str) -> None:
         raise ValueError(f"{name} must be a finite number")
 
 
-def _prediction(payload: dict) -> Prediction:
+def _prediction(payload: dict, *, allow_legacy_answers: bool = False) -> Prediction:
     pred = Prediction(**payload)
     _nonempty_text(pred.case_id, "case_id")
     if not isinstance(pred.features, dict):
@@ -92,8 +92,9 @@ def _prediction(payload: dict) -> Prediction:
         raise ValueError("confidence must be between 0 and 1")
     if not isinstance(pred.is_gold, bool):
         raise ValueError("is_gold must be a boolean")
-    if pred.gold_correct_decision not in (None, "approve", "reject", "modify"):
-        raise ValueError("gold_correct_decision must be approve, reject or modify")
+    if pred.gold_correct_decision not in (None, "approve", "reject"):
+        if not (allow_legacy_answers and pred.gold_correct_decision == "modify"):
+            raise ValueError("gold_correct_decision must be approve or reject")
     if pred.is_gold and pred.gold_correct_decision is None:
         raise ValueError("gold cases require gold_correct_decision; load backend cases with include_answers=True")
     if not isinstance(pred.top_factors, list):
@@ -116,8 +117,8 @@ def _review(payload: dict) -> ReviewAction:
     _nonempty_text(action.case_id, "case_id")
     _nonempty_text(action.reviewer, "reviewer")
     _nonempty_text(action.reason, "reason")
-    if action.action not in ("approve", "reject", "modify"):
-        raise ValueError("action must be approve, reject or modify")
+    if action.action not in ("approve", "reject"):
+        raise ValueError("action must be approve or reject")
     _finite_number(action.seconds_spent, "seconds_spent")
     if action.seconds_spent < 0:
         raise ValueError("seconds_spent must be non-negative")
@@ -209,7 +210,8 @@ def get_pending_reviews() -> list[Prediction]:
         rows = connection.execute(
             "SELECT prediction FROM cases WHERE status = 'pending' ORDER BY rowid"
         ).fetchall()
-    return [_prediction(json.loads(row["prediction"])) for row in rows]
+    # Legacy answer labels remain readable; only new writes use the binary policy.
+    return [_prediction(json.loads(row["prediction"]), allow_legacy_answers=True) for row in rows]
 
 
 def submit_review(action: ReviewAction) -> None:

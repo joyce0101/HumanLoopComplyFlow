@@ -169,7 +169,8 @@ def test_gold_denominator_description_matches_b():
     rule = data["methodology"]["gold_catch_rate"]
     assert "recommendation" in rule and "differs" in rule
     assert "Correct-AI controls are excluded" in rule
-    assert "modify" in rule
+    assert "approve/reject" in rule
+    assert "Legacy unsupported answer labels" in rule
 
 
 def test_invalid_rates_are_not_silently_reported():

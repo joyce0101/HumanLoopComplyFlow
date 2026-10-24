@@ -90,11 +90,11 @@ def reviewer_stats() -> "pd.DataFrame":
                 durations.append(duration)
             if pred is None or pred.get("decision") not in ("approve", "reject"):
                 continue
-            overrides.append(action["action"] == "modify" or action["action"] != pred["decision"])
+            overrides.append(action["action"] != pred["decision"])
             correct = pred.get("gold_correct_decision")
             if (
                 pred.get("is_gold") is True
-                and correct in ("approve", "reject", "modify")
+                and correct in ("approve", "reject")
                 and correct != pred["decision"]
             ):
                 gold_checks.append(action["action"] == correct)

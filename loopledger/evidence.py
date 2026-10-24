@@ -123,14 +123,15 @@ def build_report_json() -> dict:
         "methodology": {
             "override_rate": (
                 "Number of matched reviews with an action different from the AI "
-                "recommendation, including 'modify', divided by matched reviews. "
+                "recommendation, divided by matched reviews. "
                 "An override is not necessarily a correct decision."
             ),
             "gold_catch_rate": (
                 "Among reviewed synthetic gold controls where the AI recommendation "
                 "differs from the expected action, proportion for which the review "
-                "action exactly matches that expected action (approve/reject/modify). "
-                "Correct-AI controls are excluded. Null means no eligible controls."
+                "action exactly matches that expected action (approve/reject). "
+                "Correct-AI controls are excluded. Legacy unsupported answer labels "
+                "are excluded. Null means no eligible controls."
             ),
             "avg_seconds": (
                 "Arithmetic mean of usable nonnegative seconds_spent values "

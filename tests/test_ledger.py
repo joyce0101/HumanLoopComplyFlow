@@ -141,11 +141,13 @@ class LedgerTests(unittest.TestCase):
             ledger.log_event("prediction", asdict(pred))
         self.assertEqual(len(ledger.get_all_events()), 1)
 
-    def test_modify_is_preserved_without_inventing_final_decision(self):
+    def test_modify_is_rejected_without_closing_the_case(self):
         self.record_case()
-        ledger.submit_review(self.review(action="modify"))
-        self.assertEqual(ledger.get_all_events()[-1]["payload"]["action"], "modify")
-        self.assertEqual(ledger.get_pending_reviews(), [])
+        before = ledger.get_all_events()
+        with self.assertRaisesRegex(ValueError, "approve or reject"):
+            ledger.submit_review(self.review(action="modify"))
+        self.assertEqual(ledger.get_all_events(), before)
+        self.assertEqual(len(ledger.get_pending_reviews()), 1)
 
     def test_duplicate_unknown_and_automatic_reviews_leave_no_event(self):
         self.record_case()

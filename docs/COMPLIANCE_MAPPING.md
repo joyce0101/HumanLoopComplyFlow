@@ -21,8 +21,8 @@ The saved database can contain a mixture of real model-generated predictions and
 
 ## Metric definitions
 
-- **Override rate:** Proportion of matched reviews with an action differing from the model's advice; `modify` counts as an override. An override may be incorrect.
-- **Gold catch rate:** Among reviewed synthetic controls **where the model's recommendation differs from the expected action**, proportion where the review action exactly equals that action (`approve`, `reject` or `modify`). Correct-AI controls are excluded; no eligible sample is `null`/N/A, not 0%.
+- **Override rate:** Proportion of matched reviews with a recorded action differing from the model's advice. An override may be incorrect.
+- **Gold catch rate:** Among reviewed synthetic controls **where the model's recommendation differs from the expected action**, proportion where the review action exactly equals the binary expected action (`approve` or `reject`). Correct-AI controls and legacy non-binary answer labels are excluded; no eligible sample is `null`/N/A, not 0%.
 - **Average review time:** Average recorded duration over usable timings. It may include time away from the page and does not establish attention.
 - **Short-reason rate:** Share of submitted review reasons shorter than 12 characters after trimming. This is not natural-language quality assessment.
 - **Heuristic flag:** `insufficient_data`, `watch`, `review_signals`, `no_alert`. Even `no_alert` does not establish effective human oversight.

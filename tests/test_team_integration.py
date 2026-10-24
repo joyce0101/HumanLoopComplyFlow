@@ -96,7 +96,7 @@ class TeamIntegrationTests(unittest.TestCase):
         self.assertTrue(self.store(pred).needs_review)
         self.assertEqual(ledger.get_pending_reviews(), [pred])
         ledger.submit_review(ReviewAction(
-            pred.case_id, "model-integration", "modify",
+            pred.case_id, "model-integration", "reject",
             "The large amount requires additional supporting evidence.", 42.0,
         ))
         self.assertEqual(ledger.get_pending_reviews(), [])

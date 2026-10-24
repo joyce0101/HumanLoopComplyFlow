@@ -129,7 +129,7 @@ def build_session_snapshot(state) -> dict:
             if pred is None:
                 unmatched += 1
                 continue
-            comparisons.append(action.action == "modify" or action.action != pred.decision)
+            comparisons.append(action.action != pred.decision)
             if (
                 pred.is_gold
                 and pred.gold_correct_decision in ("approve", "reject")

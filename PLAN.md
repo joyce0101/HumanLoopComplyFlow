@@ -100,7 +100,7 @@ class GateResult:
 class ReviewAction:
     case_id: str
     reviewer: str
-    action: Literal["approve", "reject", "modify"]
+    action: Literal["approve", "reject"]
     reason: str
     seconds_spent: float      # 从打开到提交的耗时
 ```
@@ -177,7 +177,7 @@ CREATE TABLE cases (
 |---|---|---|
 | **A** | 训练 XGBoost 模型，接入 SHAP，实现 `predict()`。实现 `gate.check()`：置信度 < 0.7、贷款金额 > 某阈值、年龄 < 25 的边缘案例都进人工队列 | `python -m loopledger.model` 能打印 5 条 Prediction，其中约 20% 被闸门拦下 |
 | **B** | `ledger.py`：建表、`log_event` 计算哈希链、`submit_review`、`verify_chain`。写 `demo_reset.py` | 写入 20 条事件，`verify_chain()` 返回 True；手动改一条记录后返回 False 和断裂位置 |
-| **C** | 用**假数据**（硬编码几个 Prediction）做好 `2_Review_Queue.py`：卡片显示申请信息、AI 建议、置信度条、SHAP 条形图，三个按钮，必填理由框，自动计时 | 页面能跑，点击提交会打印 ReviewAction |
+| **C** | 用**假数据**（硬编码几个 Prediction）做好 `2_Review_Queue.py`：卡片显示申请信息、AI 建议、置信度条、SHAP 条形图，批准／拒绝两个按钮，必填理由框，自动计时 | 页面能跑，点击提交会打印 ReviewAction |
 | **D** | 写法规映射表（Art.12/13/14、ISO 42001）。写 `evidence_report.md.j2` 模板。**开始做海报草稿**（问题 → 方案 → 架构图 → 指标 → 法规） | 模板用假数据能渲染出完整报告 |
 
 #### ⏱ 15:00　🔄 检查点 1（15 分钟）

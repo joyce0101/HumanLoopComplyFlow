@@ -30,6 +30,6 @@ class ReviewAction:
 
     case_id: str
     reviewer: str
-    action: Literal["approve", "reject", "modify"]
+    action: Literal["approve", "reject"]
     reason: str
     seconds_spent: float

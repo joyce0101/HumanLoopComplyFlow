@@ -83,10 +83,10 @@ def test_basic_profile_does_not_overclaim_from_two_reviews(database):
     assert len(ledger.get_all_events()) == 20
 
 
-def test_modify_is_override_and_matches_gold_action_exactly(review):
-    review(correct="modify", action="modify")
-    review(correct="reject", action="modify")
-    review(action="approve")
+def test_binary_actions_override_only_when_different_from_ai_and_match_gold_exactly(review):
+    review(correct="reject", action="reject")
+    review(correct="reject", action="approve")
+    review(decision="reject", action="approve")
     row = metrics.reviewer_stats().iloc[0]
     assert row["override_rate"] == pytest.approx(2 / 3)
     assert row["gold_samples"] == 2
@@ -95,7 +95,7 @@ def test_modify_is_override_and_matches_gold_action_exactly(review):
 
 def test_correct_ai_controls_and_pending_gold_do_not_dilute_error_catch_rate(review):
     review(correct="approve", action="reject")  # Correct-AI control, not an error probe.
-    review(correct="modify", action="modify")
+    review(correct="reject", action="reject")
     pred = Prediction("pending-gold", {}, "approve", 0.95, [], True, "reject")
     ledger.log_event("prediction", asdict(pred))
     row = metrics.reviewer_stats().iloc[0]
@@ -161,7 +161,7 @@ def test_gold_alerts_require_three_error_probes(review, caught, flag):
 
 def test_fewer_than_three_gold_probes_do_not_raise_gold_alert(review):
     review(correct="reject")
-    review(correct="modify")
+    review(correct="reject")
     for index in range(3):
         review(action="reject" if index == 0 else "approve")
     row = metrics.reviewer_stats().iloc[0]
@@ -208,7 +208,7 @@ def test_metrics_reads_do_not_write_or_cache_stale_state(database, review):
     assert metrics.reviewer_stats().empty
     assert metrics.system_stats()["reviewed"] == 0
     assert database.read_bytes() == before
-    review(action="modify")
+    review(action="reject")
     after_write = database.read_bytes()
     assert metrics.reviewer_stats().iloc[0]["n_reviews"] == 1
     assert metrics.system_stats()["reviewed"] == 1

@@ -1,7 +1,6 @@
 """A: Synthetic gold cases for human oversight.
 
-The team's `modify` action means change/hold AI's proposed decision (including
-requesting missing evidence), not automatically approving a loan.
+New reviews and gold answers use only approve/reject.
 Answer keys MUST remain backend-only; never serialize gold_correct_decision to UI.
 """
 from dataclasses import asdict
@@ -34,7 +33,7 @@ _CASES = [
 ]
 
 _ANSWERS={row[0]:(row[5],row[6],row[4]) for row in _CASES}
-VALID_ACTIONS={"approve","reject","modify"}
+VALID_ACTIONS={"approve","reject"}
 
 def get_gold_cases(n: int = 5, include_answers: bool = False) -> list[Prediction]:
     """Return team's Prediction type. Default masks answer key for reviewer UI."""

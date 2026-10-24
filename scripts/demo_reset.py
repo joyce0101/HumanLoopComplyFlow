@@ -53,8 +53,9 @@ def seed_oversight_demo(*, binary_only: bool = False) -> None:
     """16 synthetic cases, 12 reviews, 44 events; six reviews per reviewer.
 
     Each reviewer sees three deliberately wrong AI probes. The careful reviewer
-    catches all three; the rubber stamp follows the AI. binary_only uses the
-    real model risk gate and approve/reject operations for functional checks.
+    catches all three; the rubber stamp follows the AI. All profiles use only
+    approve/reject. The legacy binary_only flag also selects the real model
+    risk gate for functional checks.
     """
     for number in range(1, 17):
         automatic = number <= 2
@@ -62,7 +63,7 @@ def seed_oversight_demo(*, binary_only: bool = False) -> None:
         careful = 3 <= number <= 8
         index = (number - 3) % 6
         is_gold = completed and index < 3
-        answers = ("reject" if binary_only else "modify", "reject", "approve")
+        answers = ("reject", "reject", "approve")
         correct = answers[index] if is_gold else None
         decision = "reject" if (correct == "approve" or number == 2) else "approve"
         pred = Prediction(
