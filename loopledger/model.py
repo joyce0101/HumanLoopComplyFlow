@@ -172,7 +172,7 @@ def predict(features: dict, case_id: str, model_path=MODEL_FILE) -> Prediction:
     features: 20 项 German Credit 输入特征，可附加 identity_verified 等业务字段。
     case_id: 由调用方提供，必须是非空字符串。
     不重新训练模型，只加载经过可信训练保存的 joblib 文件。
-    top_factors 是逻辑回归的有符号 log-odds 贡献，不是 SHAP。
+    top_factors 返回绝对值最大的 10 项有符号 log-odds 贡献，不是 SHAP。
     """
     if not isinstance(case_id, str) or not case_id.strip():
         raise ValueError("case_id 必须是非空字符串")
@@ -192,7 +192,7 @@ def predict(features: dict, case_id: str, model_path=MODEL_FILE) -> Prediction:
     z=z.toarray()[0] if hasattr(z,"toarray") else z[0]
     contributions=z*pipeline.named_steps["classifier"].coef_[0]
     feature_names=feature_transformer.get_feature_names_out()
-    top=np.argsort(np.abs(contributions))[-5:][::-1]
+    top=np.argsort(np.abs(contributions))[-10:][::-1]
     factors=[(str(feature_names[i]), round(float(contributions[i]), 4)) for i in top]
     # Use only known features for ML input, but retain provided extra demo policy fields.
     return Prediction(

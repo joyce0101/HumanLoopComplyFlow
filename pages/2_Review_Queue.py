@@ -1,8 +1,11 @@
 """Persisted review queue using the ledger's read and submission interfaces."""
 
 from dataclasses import asdict
+from html import escape
 import json
 import hashlib
+import math
+from textwrap import wrap
 import time
 
 import plotly.graph_objects as go
@@ -70,6 +73,122 @@ APPLICATION_DETAIL_GROUPS = (
         ("property_magnitude", "Property"), ("num_dependents", "People financially supported"),
     )),
 )
+
+FACTOR_LIMIT = 10
+FACTOR_LABELS = {
+    **FEATURE_LABELS,
+    **{field: label for _, fields in APPLICATION_DETAIL_GROUPS for field, label in fields},
+    "installment_commitment": "Installment rate code",
+    "residence_since": "Residence duration",
+    "personal_status": "Personal status", "job": "Occupation",
+    "own_telephone": "Registered telephone", "foreign_worker": "Foreign-worker flag",
+}
+FACTOR_DESCRIPTIONS = {
+    "credit_amount": "Requested loan amount in dataset units.",
+    "duration": "Requested repayment period in months.",
+    "age": "Applicant age in years.",
+    "purpose": "The stated use of the requested loan.",
+    "credit_history": "The dataset's record of previous credit and repayment behavior.",
+    "checking_status": "Existing checking-account status; balance bands use the original DM units.",
+    "savings_status": "Savings-account or bond holdings; the unknown/no-account category does not distinguish the two.",
+    "employment": "Length of time in the applicant's current employment.",
+    "installment_commitment": "Dataset code for installment burden relative to disposable income; the code is not a measured percentage.",
+    "other_parties": "Whether the application has another debtor, a co-applicant, or a guarantor.",
+    "housing": "Recorded housing arrangement: rented, owned, or provided free of charge.",
+    "property_magnitude": "Recorded property category; unknown/no-property does not establish which of these applies.",
+    "other_payment_plans": "Other installment arrangements through a bank or store.",
+    "existing_credits": "Number of existing credits at this bank.",
+    "num_dependents": "Number of people for whom the applicant provides financial maintenance.",
+    "residence_since": "Recorded time at the current residence, retained in the dataset's units.",
+    "personal_status": "The original dataset's combined sex and marital-status category.",
+    "job": "Occupation category recorded in the original dataset.",
+    "own_telephone": "Whether a telephone is registered under the applicant's name.",
+    "foreign_worker": "The original dataset's foreign-worker category.",
+}
+FACTOR_CATEGORY_LABELS = {
+    **CATEGORY_LABELS,
+    "personal_status": {
+        "A91": "Male: divorced / separated", "A92": "Female: divorced / separated / married",
+        "A93": "Male: single", "A94": "Male: married / widowed", "A95": "Female: single",
+    },
+    "job": {
+        "A171": "Unemployed / unskilled, non-resident", "A172": "Unskilled, resident",
+        "A173": "Skilled employee / official",
+        "A174": "Management / self-employed / highly qualified employee / officer",
+    },
+    "own_telephone": {"A191": "None", "A192": "Registered under applicant's name"},
+    "foreign_worker": {"A201": "Yes", "A202": "No"},
+}
+
+
+def contributing_factors_for_display(pred: Prediction) -> tuple[list, str | None]:
+    """Extend reproducible legacy explanations without changing stored evidence."""
+    stored = list(pred.top_factors[:FACTOR_LIMIT])
+    if not stored or pred.is_gold or len(stored) >= FACTOR_LIMIT:
+        return stored, None
+    unavailable = (
+        f"Stored factors only: {len(stored)} available. Additional contributions "
+        "could not be reproduced from the current local model."
+    )
+    try:
+        from loopledger import model
+        current = model.predict(pred.features, case_id=pred.case_id)
+        matches = (
+            isinstance(current, Prediction)
+            and current.decision == pred.decision
+            and math.isclose(current.confidence, pred.confidence, rel_tol=0, abs_tol=1e-6)
+            and [tuple(item) for item in current.top_factors[:len(stored)]] == [tuple(item) for item in stored]
+            and len(current.top_factors) >= FACTOR_LIMIT
+        )
+        if matches:
+            return list(current.top_factors[:FACTOR_LIMIT]), (
+                "Additional factors recomputed from the local model after matching the stored "
+                "recommendation, confidence and contributions. Original audit records are unchanged."
+            )
+    except Exception:
+        # Missing files, incomplete legacy inputs, or incompatible artifacts must
+        # never make the saved application or the review form unavailable.
+        pass
+    return stored, unavailable
+
+
+def factor_display_details(name: str, value: float, features: dict) -> tuple[str, str]:
+    """Explain only the named public model input, including its encoded category."""
+    encoded_category = None
+    field = name
+    numeric = name.startswith("num__")
+    if numeric:
+        field = name.removeprefix("num__")
+    elif name.startswith("cat__"):
+        encoded = name.removeprefix("cat__")
+        field, _, encoded_category = encoded.rpartition("_")
+
+    label = FACTOR_LABELS.get(field, name)
+    description = FACTOR_DESCRIPTIONS.get(field, "No field description available for this recorded factor.")
+    if field in FACTOR_LABELS:
+        raw = features.get(field)
+        if raw is None or (isinstance(raw, str) and not raw.strip()):
+            raw_text = "Not provided"
+        elif field in FACTOR_CATEGORY_LABELS:
+            raw_text = FACTOR_CATEGORY_LABELS[field].get(str(raw), f"Unknown category: {raw}")
+        else:
+            raw_text = str(raw)
+        description += f" Recorded application value: {raw_text}."
+    if encoded_category:
+        category = FACTOR_CATEGORY_LABELS.get(field, {}).get(
+            encoded_category, f"Unknown category: {encoded_category}",
+        )
+        label += f" · {category}"
+        description += f" Encoded category: {category}. This term uses a 0/1 indicator for that category."
+    elif numeric:
+        description += " This numerical input is standardized before its model contribution is calculated."
+    direction = "toward rejection" if value > 0 else ("toward approval" if value < 0 else "no contribution")
+    description += f" The contribution shown is {value:+.4f} log-odds ({direction}), not a probability or a causal effect."
+    # Plotly uses HTML in labels/tooltips. Escape all source values before adding
+    # our own line breaks, so a stored value cannot inject tooltip markup.
+    label_html = "<br>".join(escape(line) for line in wrap(label, width=34))
+    description_html = "<br>".join(escape(line) for line in wrap(description, width=68))
+    return label_html, description_html
 
 
 def application_detail_value(field: str, value) -> str:
@@ -182,32 +301,39 @@ def render_prediction(pred: Prediction, *, database: bool = False) -> None:
 
     with explanation:
         st.markdown("#### Top contributing factors")
-        if not pred.top_factors:
+        factors, note = contributing_factors_for_display(pred)
+        if not factors:
             st.info("No feature contributions were provided for this application.")
             return
-        names, values = zip(*pred.top_factors)
+        names, values = zip(*factors)
+        details = [factor_display_details(name, value, pred.features) for name, value in factors]
         figure = go.Figure(
             go.Bar(
                 x=list(values),
-                y=[FEATURE_LABELS.get(name, name) for name in names],
+                y=[label for label, _ in details],
                 orientation="h",
-                marker_color=["#dc2626" if value > 0 else "#16a34a" for value in values],
-                hovertemplate="%{y}: %{x:+.2f}<extra></extra>",
+                marker_color=["#dc2626" if value > 0 else ("#16a34a" if value < 0 else "#94a3b8") for value in values],
+                customdata=[[description, escape(name)] for name, (_, description) in zip(names, details)],
+                hovertemplate="<b>%{y}</b><br>%{customdata[0]}<br><br>Contribution: %{x:+.4f} log-odds<br>Model field: %{customdata[1]}<extra></extra>",
             )
         )
         figure.add_vline(x=0, line_color="#94a3b8", line_width=1)
         figure.update_layout(
-            height=240,
+            height=max(300, 52 * len(factors)),
             margin=dict(l=0, r=20, t=10, b=10),
             xaxis_title="Contribution toward rejection",
             yaxis=dict(autorange="reversed"),
             showlegend=False,
+            hoverlabel=dict(align="left"),
         )
         st.plotly_chart(figure, width="stretch", key="rq_factors")
+        if note:
+            st.caption(note)
         st.caption(
             ("Stored contributions; the local logistic model uses log-odds contributions, not SHAP. "
              if database else "Illustrative values, not measured SHAP output. ")
-            + "Positive → reject; negative → approve."
+            + "Positive → reject; negative → approve. Hover a bar for its meaning and application value. "
+            "These contributions are not individual confidence scores."
         )
 
 

@@ -24,6 +24,26 @@ STATUS_LABELS = {
     "review_signals": "🔴 Review signals",
     "insufficient_data": "⚪ Insufficient data",
 }
+FLAG_REASONS_HELP = """
+These are review signals, not proof that a decision is wrong.
+
+- **Short reasons:** `short_reason_rate_at_least_0.8` means at least 80% of
+  reasons are short (red); `short_reason_rate_at_least_0.4` means at least 40%
+  (yellow). Short means fewer than 12 characters after trimming outer whitespace.
+- **No overrides:** `zero_overrides_across_5_or_more_reviews` means at least
+  5 reviews can be compared with the AI and every decision followed it (yellow).
+  It does not mean every application was approved.
+- **Fast reviews:** `avg_seconds_below_5` means mean review time below 5 seconds
+  (red); `avg_seconds_below_15` means below 15 seconds (yellow).
+- **Gold checks:** `gold_catch_rate_below_0.5` means fewer than 50% of AI-error
+  controls were correctly handled (red); `gold_catch_rate_below_0.8` means fewer
+  than 80% (yellow). Both require at least 3 completed AI-error controls.
+- **Insufficient data:** `fewer_than_5_reviews` means fewer than 5 reviews;
+  `missing_or_invalid_timings` means timing is missing or invalid;
+  `missing_ai_predictions` means an original AI decision is unavailable.
+  These checks take priority over red/yellow signals. Otherwise red takes
+  priority over yellow.
+"""
 
 
 def _valid_seconds(value) -> float | None:
@@ -222,7 +242,16 @@ def render_reviewers(frame: pd.DataFrame, durations: pd.DataFrame) -> None:
         "comparison_samples": "AI comparisons", "gold_samples": "Gold checks",
     })
     st.subheader("Reviewer oversight indicators")
-    st.dataframe(display, hide_index=True, width="stretch")
+    st.dataframe(
+        display, hide_index=True, width="stretch",
+        column_config={
+            "flag_reasons": st.column_config.ListColumn(
+                "Flag reasons", help=FLAG_REASONS_HELP,
+            ),
+        },
+    )
+    if "flag_reasons" in display.columns:
+        st.caption("Hover over the Flag reasons column header to see reason-code definitions and thresholds.")
     st.caption("— means no usable measurement. Rates apply to available samples; a green status does not establish effective oversight.")
 
     means_column, distribution_column = st.columns(2)

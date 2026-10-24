@@ -110,7 +110,7 @@ def test_model_preview_uses_real_predictions_and_requires_explicit_identity_assu
     assert len(result["pending_reviews"]) == 4
     assert all(0.5 <= pred.confidence <= 1 for pred in result["pending_reviews"])
     assert all(len(pred.features) >= 20 for pred in result["pending_reviews"])
-    assert all(len(pred.top_factors) == 5 for pred in result["pending_reviews"])
+    assert all(len(pred.top_factors) == 10 for pred in result["pending_reviews"])
 
 
 def test_model_preview_verified_identity_preserves_case_ids_and_uses_typed_gate(trained_model):
