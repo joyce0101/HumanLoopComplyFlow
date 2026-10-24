@@ -14,7 +14,14 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, roc_auc_score, brier_score_loss, classification_report
 
 BASE_DIR = Path(__file__).resolve().parent
-DATA_FILE = BASE_DIR / "dataset" / "statlog+german+credit+data" / "german.data"
+# Dataset is located one level above loopledger/
+PROJECT_ROOT = BASE_DIR.parent
+DATA_FILE = (
+    PROJECT_ROOT
+    / "dataset"
+    / "statlog+german+credit+data"
+    / "german.data"
+)
 MODEL_FILE = BASE_DIR / "credit_model.joblib"
 MODEL_VERSION = "german-credit-logreg-v2"
 
