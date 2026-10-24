@@ -10,21 +10,27 @@ try:
 except ImportError:
     from schemas import Prediction
 
+
 _CASES = [
-    ("GOLD-001", "Identity verification missing", 3000, False, "approve", "modify",
+    ("GOLD-001", "Identity verification missing", 3000, False, "approve", "reject",
      "Require ID verification before any approval.", {}),
-    ("GOLD-002", "High amount without extra proof", 25000, True, "approve", "modify",
-     "Large loans require an additional review/documentation step.", {"extra_proof":False}),
+
+    ("GOLD-002", "High amount without extra proof", 25000, True, "approve", "reject",
+     "Large loans require an additional review/documentation step.", {"extra_proof": False}),
+
     ("GOLD-003", "All simulated policy checks passed", 2500, True, "approve", "approve",
-     "All stated checks pass under this synthetic demo policy.", {"policy_checks_passed":True}),
-    ("GOLD-004", "Authorized exception contradicts AI rejection", 3000, True, "reject", "modify",
+     "All stated checks pass under this synthetic demo policy.", {"policy_checks_passed": True}),
+
+    ("GOLD-004", "Authorized exception contradicts AI rejection", 3000, True, "reject", "reject",
      "Reviewer should change the AI's decision and examine the exception.",
-     {"authorized_exception":True}),
-    ("GOLD-005", "Claim and supporting document differ", 8000, True, "approve", "modify",
-     "Investigate the inconsistent supporting documentation.", {"document_amount":1000}),
+     {"authorized_exception": True}),
+
+    ("GOLD-005", "Claim and supporting document differ", 8000, True, "approve", "reject",
+     "Investigate the inconsistent supporting documentation.", {"document_amount": 1000}),
+
     ("GOLD-006", "Confirmed fraudulent identity in synthetic case", 2000, False,
      "approve", "reject", "Confirmed fraud triggers denial under demo policy.",
-     {"fraud_confirmed":True}),
+     {"fraud_confirmed": True}),
 ]
 
 _ANSWERS={row[0]:(row[5],row[6],row[4]) for row in _CASES}
