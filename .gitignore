@@ -1,0 +1,7 @@
+/C_前端开发执行建议.md
+
+# Python and local editor caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.history/

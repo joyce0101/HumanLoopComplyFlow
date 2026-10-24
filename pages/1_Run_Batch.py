@@ -1,1 +1,264 @@
-"""C：批量提交申请页面，待实现。"""
+"""Batch UI: shared-session mock routing and an explicit real-model preview.
+
+No SQL belongs in this page. B's batch persistence contract is still pending.
+"""
+
+from dataclasses import replace
+import importlib
+import math
+from pathlib import Path
+from uuid import uuid4
+
+import pandas as pd
+import streamlit as st
+
+from loopledger.schemas import GateResult, Prediction
+
+
+def _validate_batch_size(n: int) -> None:
+    if isinstance(n, bool) or not isinstance(n, int) or not 1 <= n <= 200:
+        raise ValueError("Choose between 1 and 200 applications.")
+
+
+def _new_batch(n: int, batch_id: str, mode: str) -> dict:
+    return {
+        "batch_id": batch_id,
+        "mode": mode,
+        "requested": n,
+        "rows": [],
+        "pending_reviews": [],
+    }
+
+
+def _record_prediction(result: dict, pred: Prediction, gate: GateResult) -> None:
+    if gate.needs_review:
+        routing = "Manual review"
+        result["pending_reviews"].append(pred)
+    else:
+        routing = "Auto approve" if pred.decision == "approve" else "Auto reject"
+    result["rows"].append({
+        "Case": pred.case_id,
+        "Loan amount": pred.features["credit_amount"],
+        "AI decision": pred.decision,
+        "Confidence": f"{pred.confidence:.0%}",
+        "Routing": routing,
+        "Reasons": "; ".join(gate.reasons) or "No review rule triggered",
+        "Error": "",
+    })
+
+
+def run_mock_batch(n: int, batch_id: str) -> dict:
+    """Produce scripted demo decisions without touching session state or SQL."""
+    _validate_batch_size(n)
+    result = _new_batch(n, batch_id, "Mock demo")
+    # Fixed patterns make frontend behavior reproducible. These are not model
+    # outputs or validated lending rules. Positive factors point toward reject.
+    patterns = [
+        (2500, 12, 40, "approve", 0.93, -0.30),
+        (6000, 36, 48, "reject", 0.87, 0.35),
+        (4000, 24, 30, "approve", 0.64, -0.12),
+        (18000, 48, 45, "reject", 0.88, 0.40),
+    ]
+    for index in range(n):
+        amount, duration, age, decision, confidence, contribution = patterns[index % 4]
+        pred = Prediction(
+            case_id=f"{batch_id}-{index + 1:04d}",
+            features={"credit_amount": amount, "duration": duration, "age": age},
+            decision=decision,
+            confidence=confidence,
+            top_factors=[
+                ("credit_amount", contribution),
+                ("duration", contribution / 2),
+                ("age", -contribution / 3),
+            ],
+        )
+        reasons = []
+        if confidence < 0.70:
+            reasons.append("Low confidence (< 0.70)")
+        if amount > 15000:
+            reasons.append("High amount (> 15000 demo units)")
+        _record_prediction(result, pred, GateResult(bool(reasons), reasons))
+    return result
+
+
+def run_model_batch(
+    n: int,
+    batch_id: str,
+    *,
+    model_path: str | Path | None = None,
+    identity_verified: bool = False,
+) -> dict:
+    """Use A's shared prediction/gate contracts; do not train, enqueue, or persist."""
+    _validate_batch_size(n)
+    model = importlib.import_module("loopledger.model")
+    gate = importlib.import_module("loopledger.gate")
+    from sklearn.model_selection import train_test_split
+
+    artifact = Path(model_path) if model_path is not None else Path(model.MODEL_FILE)
+    if not artifact.is_file():
+        raise FileNotFoundError(
+            "No trained model is available. Run `python -m loopledger.model --train` "
+            "before starting a model preview."
+        )
+    features, labels = model.load_data()
+    # Match the partition in A's train() so preview samples are held-out rows.
+    _, holdout, _, _ = train_test_split(
+        features, labels, test_size=0.25, random_state=42, stratify=labels
+    )
+    if n > len(holdout):
+        raise ValueError(f"Only {len(holdout)} applications are available in the holdout set.")
+
+    result = _new_batch(n, batch_id, "Model preview")
+    samples = holdout.sample(n=n, random_state=42).to_dict(orient="records")
+    for index, features in enumerate(samples):
+        case_id = f"{batch_id}-{index + 1:04d}"
+        application = {
+            **features,
+            "case_id": case_id,
+            "identity_verified": identity_verified,
+        }
+        try:
+            raw_prediction = model.predict(application, model_path=artifact)
+            if not isinstance(raw_prediction, Prediction):
+                raise ValueError("Model must return a shared Prediction object.")
+            confidence = float(raw_prediction.confidence)
+            decision = raw_prediction.decision
+            if decision not in ("approve", "reject") or not math.isfinite(confidence):
+                raise ValueError("Model returned an invalid recommendation or confidence.")
+            if not 0 <= confidence <= 1:
+                raise ValueError("Model confidence must be between 0 and 1.")
+            factors = [
+                (name, float(value))
+                for name, value in raw_prediction.top_factors[:3]
+            ]
+            if any(not math.isfinite(value) for _, value in factors):
+                raise ValueError("Model returned a nonfinite feature contribution.")
+            pred = replace(raw_prediction, confidence=confidence, top_factors=factors)
+            raw_gate = gate.evaluate_risk(application, raw_prediction)
+            if not isinstance(raw_gate, GateResult):
+                raise ValueError("Risk gate must return a shared GateResult object.")
+            needs_review = raw_gate.needs_review
+            reasons = raw_gate.reasons
+            if (
+                not isinstance(needs_review, bool)
+                or not isinstance(reasons, list)
+                or any(not isinstance(reason, str) for reason in reasons)
+            ):
+                raise ValueError("Risk gate returned an invalid routing result.")
+            _record_prediction(result, pred, GateResult(needs_review, reasons))
+        except Exception as error:
+            # Keep the failed request visible, but never turn it into an auto
+            # decision or a fabricated successful prediction.
+            result["rows"].append({
+                "Case": case_id,
+                "Loan amount": features.get("credit_amount"),
+                "AI decision": "—",
+                "Confidence": "—",
+                "Routing": "Failed",
+                "Reasons": "Not routed",
+                "Error": f"{type(error).__name__}: {error}",
+            })
+    return result
+
+
+def render_batch(result: dict) -> None:
+    st.subheader("Last completed batch")
+    st.caption(
+        f"{result['mode']} · Batch {result['batch_id']} · "
+        f"{result['requested']} applications requested. Counts below are for this batch only."
+    )
+    rows = result["rows"]
+    counts = pd.Series([row["Routing"] for row in rows]).value_counts()
+    failed = int(counts.get("Failed", 0))
+    values = {
+        "Processed": len(rows) - failed,
+        "Auto-approve": int(counts.get("Auto approve", 0)),
+        "Auto-reject": int(counts.get("Auto reject", 0)),
+        "Needs review": int(counts.get("Manual review", 0)),
+        "Failed": failed,
+    }
+    for column, (label, value) in zip(st.columns(5), values.items()):
+        column.metric(label, value)
+    if failed:
+        st.warning(f"{failed} application(s) failed. Check the Error column before retrying.")
+    if result["mode"] == "Mock demo":
+        st.info(
+            f"{values['Needs review']} mock applications were added to Review Queue "
+            "in this app session. Existing pending and completed reviews were preserved. "
+            "Opening another browser tab starts a separate session."
+        )
+    else:
+        st.info(
+            "Preview only: routing shows eligibility, not executed loan decisions. "
+            "These results were not added to Review Queue or saved to the database."
+        )
+    st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
+
+
+def main() -> None:
+    st.set_page_config(page_title="Run Batch | LoopLedger", page_icon="▶️", layout="wide")
+    state = st.session_state
+    st.title("Run Batch")
+    st.write("Process a batch of demo loan applications and inspect which decisions need review.")
+    mode = st.radio("Data source", ["Mock demo", "Model preview"], key="rb_mode", horizontal=True)
+    if mode == "Mock demo":
+        st.warning(
+            "Mock data mode / 模拟数据模式 — applications, recommendations and "
+            "contributions are synthetic. Results stay in this browser session; "
+            "no database records are written."
+        )
+        st.caption("Mock review rules: confidence < 0.70 or loan amount > 15,000 demo units.")
+    else:
+        st.warning(
+            "Model preview only — uses the local German Credit dataset and an "
+            "already trained model. Persistence and the real review queue are not connected."
+        )
+        st.caption(
+            "The dataset contains no identity-verification evidence. Without the "
+            "explicit demo assumption below, the risk gate requires manual review. "
+            "Loan amounts use dataset units."
+        )
+
+    with st.form("rb_run_form"):
+        n = st.slider("Number of applications", 1, 200, 50, key="rb_batch_size")
+        identity_verified = False
+        if mode == "Model preview":
+            identity_verified = st.checkbox(
+                "Assume identity verified for this demo preview",
+                value=False,
+                key="rb_demo_identity_verified",
+            )
+        run = st.form_submit_button("Run batch", type="primary")
+
+    if run:
+        batch_id = f"B-{uuid4().hex[:12]}"
+        try:
+            with st.spinner("Processing applications…"):
+                if mode == "Mock demo":
+                    result = run_mock_batch(n, batch_id)
+                else:
+                    result = run_model_batch(n, batch_id, identity_verified=identity_verified)
+            if mode == "Mock demo":
+                state["rq_pending_reviews"] = (
+                    list(state.get("rq_pending_reviews", [])) + result["pending_reviews"]
+                )
+                if "rq_submitted_reviews" not in state:
+                    state["rq_submitted_reviews"] = []
+                state.setdefault("rb_mock_batches", []).append(result)
+            state["rb_last_batch"] = result
+            state.pop("rb_last_error", None)
+        except Exception as error:
+            state["rb_last_error"] = f"Batch could not be completed: {error}"
+
+    if error := state.get("rb_last_error"):
+        st.error(error)
+        if "rb_last_batch" in state:
+            st.caption("The results below belong to the previous completed batch.")
+    if "rb_last_batch" in state:
+        render_batch(state["rb_last_batch"])
+    else:
+        st.info("Choose a batch size and click Run batch to begin.")
+
+
+if __name__ == "__main__":
+    main()
