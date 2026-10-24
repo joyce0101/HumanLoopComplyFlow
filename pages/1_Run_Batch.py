@@ -3,6 +3,7 @@
 from dataclasses import asdict, replace
 import importlib
 import math
+import random
 from pathlib import Path
 from uuid import uuid4
 
@@ -38,6 +39,7 @@ def _record_prediction(result: dict, pred: Prediction, gate: GateResult) -> None
     result["rows"].append({
         "Case": pred.case_id,
         "Loan amount": pred.features["credit_amount"],
+        "Gold Case": "GOLD" if pred.is_gold else "Normal",
         "AI decision": pred.decision,
         "Confidence": f"{pred.confidence:.0%}",
         "Routing": routing,
@@ -152,6 +154,34 @@ def run_model_batch(
     return result
 
 
+def run_mixed_batch(n: int, batch_id: str, *, model_path=None,
+                    identity_verified: bool = False, gold_ratio: float = 0.10) -> dict:
+    """Keep batch total n and randomly mix 10% Gold Cases into model predictions."""
+    _validate_batch_size(n)
+    if not 0 <= gold_ratio <= 1:
+        raise ValueError("gold_ratio must be between 0 and 1")
+    n_gold = int(n * gold_ratio + 0.5)
+    n_normal = n - n_gold
+    result = (run_model_batch(n_normal, batch_id, model_path=model_path,
+                              identity_verified=identity_verified)
+              if n_normal else _new_batch(n, batch_id, "Model preview"))
+    result["requested"] = n
+    if n_gold:
+        gold = importlib.import_module("loopledger.gold")
+        gate = importlib.import_module("loopledger.gate")
+        templates = gold.make_gold_cases(6)
+        for i in range(n_gold):
+            pred = replace(templates[i % len(templates)],
+                           case_id=f"{batch_id}-C-{i + 1:04d}")
+            _record_prediction(result, pred, gate.check(pred))
+    rng = random.Random(batch_id)
+    rng.shuffle(result["rows"])
+    rng.shuffle(result["decisions"])
+    rng.shuffle(result["pending_reviews"])
+    result["gold_count"], result["regular_count"] = n_gold, n_normal
+    return result
+
+
 def persist_model_batch(result: dict) -> dict:
     """Save predictions then routing; a missing gate leaves a pending case.
 
@@ -204,6 +234,9 @@ def render_batch(result: dict) -> None:
     }
     for column, (label, value) in zip(st.columns(5), values.items()):
         column.metric(label, value)
+    if "gold_count" in result:
+        st.caption("Batch mix: {} model cases + {} visible Gold Cases.".format(
+            result["regular_count"], result["gold_count"]))
     if failed:
         st.warning(f"{failed} application(s) failed. Check the Error column before retrying.")
     if result["mode"] == "Mock demo":
@@ -257,7 +290,7 @@ def main() -> None:
         try:
             with st.spinner("Processing applications…"):
                 result = persist_model_batch(
-                    run_model_batch(n, batch_id, identity_verified=identity_verified)
+                    run_mixed_batch(n, batch_id, identity_verified=identity_verified)
                 )
             state["rb_last_batch"] = result
             state.pop("rb_last_error", None)

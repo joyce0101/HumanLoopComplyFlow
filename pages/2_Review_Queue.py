@@ -74,6 +74,8 @@ def public_case_id(case_id: str) -> str:
 def render_prediction(pred: Prediction, *, database: bool = False) -> None:
     """Render only public fields; never pass a whole Prediction to the UI."""
     st.subheader(f"Application {public_case_id(pred.case_id) if database else pred.case_id}")
+    if pred.is_gold:
+        st.warning("GOLD CASE — visible demo test. Expected answer remains backend-only.")
     columns = st.columns(3)
     for column, feature in zip(columns, FEATURE_LABELS):
         value = pred.features.get(feature)
