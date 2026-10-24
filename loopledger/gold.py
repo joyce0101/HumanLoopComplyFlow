@@ -48,6 +48,16 @@ def get_gold_cases(n: int = 5, include_answers: bool = False) -> list[Prediction
         ))
     return output
 
+def make_gold_cases(n: int) -> list[Prediction]:
+    """符合 PLAN.md 3.2 的服务端金标准生成接口。
+
+    B 的 ledger.py 明确要求 gold_correct_decision 不得为 None，
+    所以这里使用 include_answers=True。此对象仅允许交给可信持久层；
+    前端不可直接序列化或展示这份对象，应过滤正确答案和 is_gold 标记。
+    """
+    return get_gold_cases(n, include_answers=True)
+
+
 def public_review_payload(case: Prediction) -> dict:
     """Allowlist safe fields; always strips is_gold and gold_correct_decision."""
     return {"case_id":case.case_id,"features":case.features,"decision":case.decision,

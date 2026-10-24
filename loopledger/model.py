@@ -140,7 +140,49 @@ def _prepare(application):
         row[f]=val
     return pd.DataFrame([row],columns=FEATURES)
 
-def predict(application:dict, model_path=MODEL_FILE)->Prediction:
+def sample_cases(n: int) -> list[dict]:
+    """从训练时固定划分的测试集抽取 n 条申请（团队 PLAN.md 3.2 接口）。
+
+    为避免测试集泄露到模型拟合，使用与 train() 完全相同的 random_state=42
+    和 stratify=y 规则重建测试集索引。返回的字典不含目标标签。
+    每条案例默认添加 identity_verified=True，便于风险闸门识别业务元信息。
+    """
+    if type(n) is not int or n < 0:
+        raise ValueError("n 必须是非负整数")
+    X, y = load_data(DATA_FILE)
+    _, x_test, _, _ = train_test_split(
+        X, y, test_size=.25, random_state=42, stratify=y
+    )
+    if n > len(x_test):
+        raise ValueError(f"最多可以抽取 {len(x_test)} 条测试案例")
+    # 固定打乱顺序，反复 Demo 时结果可重现。
+    selected = x_test.sample(n=n, random_state=42)
+    cases = []
+    for _, row in selected.iterrows():
+        record = {key: (value.item() if isinstance(value, np.generic) else value)
+                  for key, value in row.to_dict().items()}
+        record["identity_verified"] = True  # 演示业务字段，并非 German Credit 原始特征
+        cases.append(record)
+    return cases
+
+
+def predict(features: dict, case_id: str, model_path=MODEL_FILE) -> Prediction:
+    """根据申请特征和唯一案例编号生成 Prediction（团队 PLAN.md 3.2 接口）。
+
+    features: 20 项 German Credit 输入特征，可附加 identity_verified 等业务字段。
+    case_id: 由调用方提供，必须是非空字符串。
+    不重新训练模型，只加载经过可信训练保存的 joblib 文件。
+    top_factors 是逻辑回归的有符号 log-odds 贡献，不是 SHAP。
+    """
+    if not isinstance(case_id, str) or not case_id.strip():
+        raise ValueError("case_id 必须是非空字符串")
+    if not isinstance(features, dict):
+        raise TypeError("features 必须是字典")
+    application = dict(features)
+    # 允许用户将 case_id 放入 features，但不允许出现两个不一致的编号。
+    if "case_id" in application and application["case_id"] != case_id:
+        raise ValueError("features.case_id 与 case_id 参数不一致")
+    application.pop("case_id", None)
     bundle=load_model(str(Path(model_path)))
     pipeline=bundle["pipeline"]
     x=_prepare(application)
@@ -152,9 +194,6 @@ def predict(application:dict, model_path=MODEL_FILE)->Prediction:
     feature_names=feature_transformer.get_feature_names_out()
     top=np.argsort(np.abs(contributions))[-5:][::-1]
     factors=[(str(feature_names[i]), round(float(contributions[i]), 4)) for i in top]
-    case_id = application.get("case_id")
-    if not isinstance(case_id, str) or not case_id.strip():
-        raise ValueError("application must contain a nonempty case_id")
     # Use only known features for ML input, but retain provided extra demo policy fields.
     return Prediction(
         case_id=case_id,
@@ -175,7 +214,7 @@ if __name__=="__main__":
     if args.train:
         result=train(args.data,args.model)
     else:
-        result=predict(EXAMPLE_APPLICATION,args.model)
+        result=predict(EXAMPLE_APPLICATION,"LOAN-001",args.model)
     from dataclasses import asdict, is_dataclass
     print(json.dumps(asdict(result) if is_dataclass(result) else result,
                      indent=2,ensure_ascii=False))
