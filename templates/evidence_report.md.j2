@@ -7,9 +7,9 @@
 
 ## 1. Executive Summary
 
-LoopLedger is a prototype for observing whether human involvement in AI-assisted decisions is substantive. It combines a risk gate, a human review queue, reviewer behaviour indicators, and an auditable event log.
+LoopLedger is a hackathon prototype for making AI-assisted lending recommendations and human review actions more reviewable. It combines a risk gate, a persisted review queue, reviewer oversight indicators and an event-chain consistency check.
 
-This document records observed demo signals and limitations. It does **not** demonstrate legal compliance or production fitness.
+The indicators are investigatory signals only, not proof that oversight was effective. The audit trail and report do not establish legal compliance or fitness for real lending.
 
 ## 2. System Activity
 
@@ -35,7 +35,7 @@ This document records observed demo signals and limitations. It does **not** dem
 | Reviewer | Reviews | Avg seconds | Override rate | Gold catch rate | Short reason rate | Flag |
 |---|---:|---:|---:|---:|---:|---|
 {% for r in reviewer_metrics %}
-| {{ r.reviewer }} | {{ r.n_reviews }} | {{ '%.2f' | format(r.avg_seconds) }} | {{ r.override_rate | percent }} | {{ r.gold_catch_rate | percent }} | {{ r.short_reason_rate | percent }} | {{ r.flag }} |
+| {{ r.reviewer }} | {{ r.n_reviews }} | {{ r.avg_seconds | seconds }} | {{ r.override_rate | percent }} | {{ r.gold_catch_rate | percent('N/A (no control cases)') }} | {{ r.short_reason_rate | percent }} | {{ r.flag }} |
 {% else %}
 | No reviews yet | 0 | N/A | N/A | N/A | N/A | insufficient_data |
 {% endfor %}
@@ -46,16 +46,16 @@ This document records observed demo signals and limitations. It does **not** dem
 - **{{ name }}:** {{ description }}
 {% endfor %}
 
-The traffic-light flag is an illustrative heuristic, not a conclusion about professional competence.
+Gold catch rate excludes synthetic cases for which the AI's recommendation already matches the expected action. An absent measurement is not a 0% catch rate. Status flags use illustrative rules and are not assessments of reviewer competence.
 
 ## 4. Audit Trail Integrity
 
-- **Integrity check result:** {{ "PASS (for available local records)" if integrity.chain_intact else "FAIL — tampering/inconsistency detected" }}
+- **Integrity check result:** {{ "PASS (for available local events)" if integrity.chain_intact else "FAIL — tampering/inconsistency detected" }}
 - **First broken event ID:** {{ integrity.first_broken_event_id if integrity.first_broken_event_id is not none else 'None' }}
 - **Latest recorded event hash:** `{{ integrity.tip_hash if integrity.tip_hash else 'EMPTY_LEDGER' }}`
 - **Security boundary:** {{ integrity.scope }}
 
-Hash-chain verification gives evidence of consistency of the *local* event history. It cannot prove completeness, trustworthiness of the originating actor, or immutability against a privileged attacker.
+The SHA-256 chain verifies consistency of the observed local **events** history only. It does not validate the separate `cases` projection, authenticate reviewers, prove completeness, or prevent a privileged actor rewriting/reanchoring the database. An empty chain may pass verification without demonstrating meaningful evidence.
 
 ## 5. Regulatory & Standards Mapping
 
@@ -65,7 +65,7 @@ Hash-chain verification gives evidence of consistency of the *local* event histo
 | [{{ item.framework }} — {{ item.reference }}]({{ item.source_url }}) | {{ item.expectation }} | {{ item.loopledger_feature }} | {{ item.limitation }} |
 {% endfor %}
 
-This mapping shows **potentially relevant supporting evidence**. It is not a clause-by-clause assessment of the system, its intended use, or organizational controls.
+This mapping shows **potentially relevant supporting evidence**, not a conformity assessment or certification.
 
 ## 6. Assumptions, Risks & Limitations
 
@@ -75,8 +75,8 @@ This mapping shows **potentially relevant supporting evidence**. It is not a cla
 
 ## 7. Follow-up Actions
 
-1. Validate the connected model, storage, review and reporting workflow against representative end-to-end cases.
-2. Validate the risk gate, oversight benchmarks, gold-control construction, and false-positive rates on representative data.
-3. Confirm intended-use classification and applicable legal duties with qualified compliance counsel.
-4. Establish access controls, independent log anchoring, retention, and evidence governance before any real deployment.
-
+1. Validate the complete connected prediction, database, human-review and export workflow using representative end-to-end tests.
+2. Validate risk-gate thresholds and gold controls with appropriate subject-matter experts and relevant datasets.
+3. Assess whether and how the EU AI Act and applicable data-protection requirements apply to a specific deployment.
+4. Implement access controls, externally anchored audit logs, retention controls and governance before production use.
+5. Replace sequential backend reads with one transaction-consistent report query if production-grade attestations are required.
