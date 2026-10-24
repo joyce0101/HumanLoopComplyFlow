@@ -1,26 +1,52 @@
 # LoopLedger 演示场景与操作脚本
 
-建议时长：约 12 分钟。准备日期：2026-10-24。
+建议时长：约 12 分钟。更新日期：2026-10-25。
 
 目标：用一条连续流程展示模型分流、人工复核、审核行为对照，以及审计证据。审核只使用批准／拒绝。明确区分真实模型输出、预设控制题和合成审核历史。
 
 ## 1. 演示前准备
 
-在项目根目录、已安装项目依赖的 Python 环境下运行。输出目录必须不存在；每轮彩排使用新目录，保留现有根目录数据库。
+在项目根目录、已安装项目依赖的 Python 环境下运行。正式演示统一使用根目录的 `loopledger.db`。
+
+**每次演示或彩排前，都必须清空上一轮记录、重新初始化，并从场景一完整重演。** 不沿用上次的批次、审核记录或待审队列。
+
+先在运行 8503、8504 服务的终端分别按 `Ctrl+C` 停止服务，再执行下面的准备命令。**命令会清空 `loopledger.db` 的现有申请和审计事件、重建本轮演示数据，并删除上一轮的篡改副本；不创建备份。**
 
 ```bash
-python scripts/demo_check.py --output-dir /tmp/loopledger-demo-1025
+python -c "from pathlib import Path; Path('loopledger-tampered.db').unlink(missing_ok=True)"
+python scripts/demo_reset.py --db loopledger.db --force --profile functional
+LOOPLEDGER_DB_PATH=loopledger.db python - <<'PY'
+from loopledger import ledger
+from loopledger.schemas import ReviewAction
+
+for pred, decision in zip(ledger.get_pending_reviews(), ("approve", "reject")):
+    ledger.submit_review(ReviewAction(
+        pred.case_id, "demo_judge", decision,
+        "Checked the application and supporting evidence.", 35.0,
+    ))
+print("Chain check:", ledger.verify_chain())
+PY
 ```
 
-此命令会在独立目录创建干净库、篡改副本、Markdown/JSON 报告及 summary.json，并验证后端流程。它不会改写项目原有的 loopledger.db，也不代表已完成浏览器现场操作验收。
+重置命令先生成合成对照数据，随后 Python 代码完成其中两条待审申请，得到每轮一致的起点：**16 条合成申请、14 次审核、46 条事件、0 条待审**。这些是本轮重新生成的预置历史，供场景五对比审核行为。
+
+确认命令无报错且输出 `Chain check: (True, None)` 后，再启动页面。准备失败时先排查，不继续运行批处理。
 
 终端 A：启动正式演示页面。
 
 ```bash
-LOOPLEDGER_DB_PATH=/tmp/loopledger-demo-1025/clean.db python -m streamlit run app.py --server.port 8503
+LOOPLEDGER_DB_PATH=loopledger.db python -m streamlit run app.py --server.port 8503
 ```
 
-打开 http://127.0.0.1:8503/。初始库已有 16 条合成申请、14 次审核、46 条事件、0 条待审。它保留三名预置审核员的对照结果；现场所有新操作统一使用 `live_reviewer`，避免改变预置对照。
+打开或刷新 http://127.0.0.1:8503/，确认总申请数为 16、已审核为 14、待审核为 0，然后从场景一开始。现场所有新操作统一使用 `live_reviewer`，避免改变预置对照。
+
+每轮完整重演的计数检查点如下（场景二、三、四各提交一次审核）：
+
+| 检查点 | 申请总数 | 已审核 | 待审核 | 审计事件 |
+| --- | --- | --- | --- | --- |
+| 演示前初始化完成 | 16 | 14 | 0 | 46 |
+| 场景一运行 50 条批处理后 | 66 | 14 | 18 | 146 |
+| 场景二至四完成三次审核后 | 66 | 17 | 15 | 149 |
 
 固定当前数据集和模型文件，不在现场重新训练。正式演示前彩排一次，并记录将要选择的 Application 显示编号；每次新批次的原始编号和 APP 显示编号都会变化。
 
@@ -118,13 +144,13 @@ AI 建议批准，预设答案也是批准。查看证据后，以 `live_reviewe
 3. 使用终端 B，从已完成现场操作的干净库创建一个新副本，仅修改副本中第 10 条审计事件：
 
 ```bash
-python scripts/demo_tamper.py --source /tmp/loopledger-demo-1025/clean.db --output /tmp/loopledger-demo-1025/live-tampered.db --event-id 10
+python scripts/demo_tamper.py --source loopledger.db --output loopledger-tampered.db --event-id 10
 ```
 
 4. 该输出文件必须不存在。启动副本页面：
 
 ```bash
-LOOPLEDGER_DB_PATH=/tmp/loopledger-demo-1025/live-tampered.db python -m streamlit run app.py --server.port 8504
+LOOPLEDGER_DB_PATH=loopledger-tampered.db python -m streamlit run app.py --server.port 8504
 ```
 
 5. 在 http://127.0.0.1:8504/ 的 Compliance 页面校验，展示“发现异常，首个失败事件 #10”。生成的异常证据报告应明确显示 FAIL，仍可下载留存。
@@ -134,15 +160,16 @@ LOOPLEDGER_DB_PATH=/tmp/loopledger-demo-1025/live-tampered.db python -m streamli
 
 ## 3. 现场顺序与准备检查
 
+- 每次演示或彩排都先停止服务，执行第 1 节全部准备命令，再启动页面并从场景一开始；不要跳过重置或复用上一轮进度。
 - 前半段展示一轮真实模型批次及三次人工操作；后半段查看预置行为对照，再导出和对比篡改副本。
 - 暂不将“授权例外与 AI 拒绝矛盾”的控制题作为主案例：当前场景文案暗示应推翻 AI，入库标准答案却同为拒绝，题意与答案尚需统一。
 - 现场审核理由写完整，使用新审核员名称；不修改预置审核历史来凑颜色或分数。
 - 提前打开两个终端，正式演示先只运行 8503；8504 在创建最新篡改副本后启动，保证比较的是同一时点的数据。
 - 路径、模型和 Python 环境提前确认；浏览器中只保留必要页面，避免连错数据库或端口。
-- demo_check 已生成初始干净／异常报告，可作后端证据展示备用；这些文件是初始 16 条数据的报告，不包含随后现场运行的批次。
+- 本轮报告在场景六重新生成并下载；不要把上一轮下载的报告当成本轮结果。篡改副本也必须在本轮三次现场审核完成后重新创建。
 
 ## 4. 已做的验证
 
-本次使用独立临时目录运行现有 demo_check，结果通过：16 条申请、14 次审核、46 条事件；三名预置审核员的指标与上表一致；篡改副本定位到第 10 条事件；原有项目数据库未改变。
+此前使用独立临时目录运行现有 demo_check，结果通过：16 条申请、14 次审核、46 条事件；三名预置审核员的指标与上表一致；篡改副本定位到第 10 条事件。该独立验收没有改变当时的项目数据库；正式演示按第 1 节直接重置根目录 `loopledger.db`。
 
 另以纯预览调用当前 run_mixed_batch(50, identity_verified=True)，确认 45 条模型申请、5 条控制题及 27/5/18 的分流结果。预览未将该批次保存到项目数据库。正式演示前仍需彩排完整浏览器操作。
