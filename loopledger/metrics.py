@@ -1,7 +1,7 @@
 """Read-only oversight indicators from persisted ledger data.
 
 Rates are fractions, absent measurements are None, and flags are illustrative
-signals rather than assessments of competence. See docs/B_METRICS.md for the
+signals rather than assessments of competence. See docs/OVERSIGHT_METRICS.md for the
 denominators, sample requirements and integration contract.
 """
 
@@ -68,7 +68,7 @@ def reviewer_stats() -> "pd.DataFrame":
     """Aggregate completed review events against their preceding AI prediction.
 
     The first seven columns follow PLAN.md. Extra sample counts and reason codes
-    support C's existing dashboard and make warnings reviewable. Gold catch rate
+    support the existing dashboard and make warnings reviewable. Gold catch rate
     excludes correct-AI controls; only known AI-error probes test error detection.
     """
     originals, groups = {}, defaultdict(list)

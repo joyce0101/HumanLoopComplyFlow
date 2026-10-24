@@ -1,4 +1,4 @@
-"""Real B metrics through unchanged C/D consumers, without backend stubs."""
+"""Persisted metrics through dashboard/report consumers without backend stubs."""
 
 import json
 from pathlib import Path
