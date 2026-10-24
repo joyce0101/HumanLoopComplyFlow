@@ -11,7 +11,11 @@ from sklearn.preprocessing import OneHotEncoder, StandardScaler
 from sklearn.pipeline import Pipeline
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score, roc_auc_score, brier_score_loss, classification_report
+from sklearn.metrics import accuracy_score, roc_auc_score, brier_score_loss
+try:
+    from .schemas import Prediction
+except ImportError:
+    from schemas import Prediction
 
 BASE_DIR = Path(__file__).resolve().parent
 # Dataset is located one level above loopledger/
@@ -50,7 +54,7 @@ CATEGORY_CODES = {
     "foreign_worker":["A201","A202"]
 }
 EXAMPLE_APPLICATION = {
-    "decision_id":"LOAN-001","checking_status":"A11","duration":30,
+    "case_id":"LOAN-001","checking_status":"A11","duration":30,
     "credit_history":"A32","purpose":"A40","credit_amount":16000,
     "savings_status":"A61","employment":"A73","installment_commitment":3,
     "personal_status":"A93","other_parties":"A101","residence_since":2,
@@ -136,7 +140,7 @@ def _prepare(application):
         row[f]=val
     return pd.DataFrame([row],columns=FEATURES)
 
-def predict(application:dict, model_path=MODEL_FILE)->dict:
+def predict(application:dict, model_path=MODEL_FILE)->Prediction:
     bundle=load_model(str(Path(model_path)))
     pipeline=bundle["pipeline"]
     x=_prepare(application)
@@ -147,19 +151,20 @@ def predict(application:dict, model_path=MODEL_FILE)->dict:
     contributions=z*pipeline.named_steps["classifier"].coef_[0]
     feature_names=feature_transformer.get_feature_names_out()
     top=np.argsort(np.abs(contributions))[-5:][::-1]
-    explanations=[{"feature":str(feature_names[i]),
-                   "contribution_to_default_log_odds":round(float(contributions[i]),4)}
-                  for i in top]
-    return {
-        "decision_id":str(application.get("decision_id","UNASSIGNED")),
-        "model_version":bundle["version"],
-        "prediction":"reject" if p>=.5 else "approve",
-        "probability_default":round(p,4),
-        "confidence":round(max(p,1-p),4),
-        "explanation":explanations,
-        "dataset":bundle["metrics"]["dataset"],
-        "disclaimer":"Educational demonstration only, not for real credit decisions."
-    }
+    factors=[(str(feature_names[i]), round(float(contributions[i]), 4)) for i in top]
+    case_id = application.get("case_id")
+    if not isinstance(case_id, str) or not case_id.strip():
+        raise ValueError("application must contain a nonempty case_id")
+    # Use only known features for ML input, but retain provided extra demo policy fields.
+    return Prediction(
+        case_id=case_id,
+        features=dict(application),
+        decision="reject" if p >= 0.5 else "approve",
+        confidence=round(max(p, 1-p), 4),
+        top_factors=factors,
+        is_gold=False,
+        gold_correct_decision=None,
+    )
 
 if __name__=="__main__":
     parser=argparse.ArgumentParser()
@@ -171,4 +176,6 @@ if __name__=="__main__":
         result=train(args.data,args.model)
     else:
         result=predict(EXAMPLE_APPLICATION,args.model)
-    print(json.dumps(result,indent=2,ensure_ascii=False))
+    from dataclasses import asdict, is_dataclass
+    print(json.dumps(asdict(result) if is_dataclass(result) else result,
+                     indent=2,ensure_ascii=False))
