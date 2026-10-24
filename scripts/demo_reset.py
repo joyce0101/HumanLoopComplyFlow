@@ -49,11 +49,51 @@ def seed_demo() -> None:
         ))
 
 
+def seed_oversight_demo() -> None:
+    """16 synthetic cases, 12 reviews, 44 events; six reviews per reviewer.
+
+    Each reviewer sees three deliberately wrong AI probes. The careful reviewer
+    catches all three (including modify); the rubber stamp follows the AI.
+    """
+    for number in range(1, 17):
+        automatic = number <= 2
+        completed = 3 <= number <= 14
+        careful = 3 <= number <= 8
+        index = (number - 3) % 6
+        is_gold = completed and index < 3
+        correct = ("modify", "reject", "approve")[index] if is_gold else None
+        decision = "reject" if (correct == "approve" or number == 2) else "approve"
+        pred = Prediction(
+            case_id=f"oversight-{number:03d}",
+            features={"credit_amount": 2000 + number * 100, "age": 30 + number, "duration": 24},
+            decision=decision,
+            confidence=0.95 if automatic or is_gold else 0.61,
+            top_factors=[("credit_amount", -0.2), ("duration", 0.1), ("age", 0.05)],
+            is_gold=is_gold,
+            gold_correct_decision=correct,
+        )
+        ledger.log_event("prediction", asdict(pred))
+        gate = GateResult(not automatic, ["demo_manual_review"] if not automatic else [])
+        ledger.log_event("gate", {"case_id": pred.case_id, **asdict(gate)})
+        if completed:
+            ledger.submit_review(ReviewAction(
+                case_id=pred.case_id,
+                reviewer="careful_reviewer" if careful else "rubber_stamp",
+                action=correct if careful and is_gold else pred.decision,
+                reason="Checked the application and supporting evidence before deciding." if careful else "OK",
+                seconds_spent=(45.0, 50.0, 55.0, 60.0, 40.0, 50.0)[index] if careful else 2.0,
+            ))
+
+
 def main(argv=None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--db", type=Path, default=Path(os.environ.get("LOOPLEDGER_DB_PATH", ledger.DB_PATH)))
     parser.add_argument("--empty", action="store_true", help="Create empty tables without demo fixtures")
     parser.add_argument("--force", action="store_true", help="Clear an existing database before seeding")
+    parser.add_argument(
+        "--profile", choices=("basic", "oversight"), default="basic",
+        help="basic: 20-event ledger sample; oversight: 44-event reviewer comparison",
+    )
     args = parser.parse_args(argv)
     path = args.db.resolve()
     if path.exists() and not args.force:
@@ -66,12 +106,13 @@ def main(argv=None) -> None:
         connection.execute("DELETE FROM events")
         connection.execute("DELETE FROM sqlite_sequence WHERE name = 'events'")
     if not args.empty:
-        seed_demo()
+        (seed_oversight_demo if args.profile == "oversight" else seed_demo)()
     intact, broken_id = ledger.verify_chain()
     if not intact:
         raise RuntimeError(f"Demo chain is broken at #{broken_id}")
     print(json.dumps({
         "database": str(path), "synthetic_data": not args.empty,
+        "profile": args.profile,
         "events": len(ledger.get_all_events()),
         "pending": len(ledger.get_pending_reviews()), "chain_intact": intact,
     }))

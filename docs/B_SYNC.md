@@ -1,5 +1,7 @@
 # B 组与团队版本同步事项
 
+第二步指标已实现，现有 C/D 的真实后台调用已验证。最新接口、口头同步事项、队友应读文件和旧测试调整说明以 [B_METRICS.md](./B_METRICS.md) 为准。
+
 本次以团队 `main` 的 `0b41de2`（`Implement Streamlit demo workflows and frontend tests`）为基线，直接在本地 `main` 快进同步 26 个提交，其中包括 A 的 `7f05b61` 数据结构对齐和 C 的最新页面及测试。没有新建分支，没有改动 A/C/D 的修订文件；下列差异仅作交接说明。
 
 ## 本次 B 组已处理
@@ -18,13 +20,14 @@
 | P0 · A / C | `gate.check(pred)` | `evaluate_risk(application, prediction)` | 使用 `evaluate_risk(pred.features, pred)`，确保 application 的 `case_id` 与 pred 一致。金标准 features 不含 case_id，调用时需补入。不要调用不存在的 `check()`。 |
 | P0 · A / C | `sample_cases(n)` | A 未提供，C 已自行复现 75%/25% 划分并从 holdout 抽样 | C 当前模型预览可用，但没有持久化。后续统一采样入口时需保持训练/测试划分一致；本次未改两组代码。 |
 | P0 · A / B / C | `make_gold_cases(n)`，二元正确答案 | `get_gold_cases(n, include_answers=False)`，正确操作可为 `modify` | 后台调用时设 `include_answers=True`；审核员界面使用 `public_review_payload(pred)`，不得展示答案。B 已兼容三种正确操作。 |
-| P0 · B / C / D | 指标与报告可按签名调用 | `metrics.py` 仍为占位文件；D 在模块顶层导入两个缺失的函数 | `evidence` 真实导入仍受阻。下一步应实现 `reviewer_stats()`、`system_stats()`，再做真实证据导出集成测试；当前 D 的三个测试使用替身后台。 |
+| 已处理 · B / C / D | 指标与报告可按签名调用 | `reviewer_stats()`、`system_stats()` 已实现 | 已用真实 SQLite 验证 Dashboard、D 报告及 Compliance 下载；D 原有替身测试保留，另增 B 的真实集成测试。 |
+| P0 · C | 缺失后台时应明确报错 | `tests/test_oversight_dashboard.py::test_backend_mode_reports_missing_functions_without_session_fallback` 未模拟缺失依赖，仍断言真实后台报错 | 指标实现后该断言过时。请 C 用空 metrics 模块 stub 模拟缺失；B 自有集成测试已验证真正缺失时仍报错。本次不修改队友文件。 |
 | P0 · B / C | 批量 → SQLite 队列 → 审批落库 | C 的 mock batch/审核使用 session_state，Model preview 不入队也不落库 | C 接入时先调用 `init_db()`，逐案例保存 prediction 和 gate；审核页改用 `get_pending_reviews()` 与 `submit_review()`，成功落库后才刷新 UI。B 接口已完成，本次未改 C 页面。 |
 | P0 · A / C | 审核操作包含 `modify` | A 四道金标准题正确操作为 `modify`，C 审核页该按钮禁用 | 真实金标准进入页面前，需 C 提供修改/暂缓操作并与 A 统一含义，否则这些题无法答对。B 已支持记录该操作。 |
 | P1 · A / C | 审核页可展示任意共享 Prediction | C 假定 features 必含 age、duration，且 top_factors 非空；A 金标准缺少这些数值且 factors 为空 | 直接换成真实队列会有 KeyError / 空序列解包风险。C 接入时需对缺失字段和无特征贡献提供合理展示；本次未改页面。 |
 | P1 · B / D | `auto_approved` 表示自动批准 | 报告模板将该字段展示为所有 `status=auto` 的自动决定 | 自动拒绝不能算自动批准。后续 B 应只计批准；请 D 同步修改展示标签，或全队确认新增独立 `auto_decided` 字段。当前未改模板。 |
-| P1 · B / D | 旧本地文档没有确定 `modify` 的统计口径 | D 方法说明将 `modify` 计为 override，短理由为少于 12 字符 | 后续指标按此口径实现；金标准答案等于 `modify` 时，人也选择 `modify` 才算正确。无已审金标准题返回空值，不能返回 0% 代替无数据。 |
-| P1 · B / C | flag 仅约定红黄绿 | C 后台页面识别 `no_alert / watch / review_signals / insufficient_data`；会话演示少于 5 次审核显示样本不足 | B 后续指标应输出兼容枚举，明确最小样本数和阈值。当前 B 重置样例每人仅 2 次审核，若采用 C 阈值应显示样本不足；演示红绿对照前需补足审核次数，不能放松阈值伪造结论。 |
+| 已处理 · B / D | 旧本地文档没有确定 `modify` 的统计口径 | 与 D 对齐：`modify` 计为 override，短理由为去除两端空白后少于 12 字符 | 正确答案为 `modify` 的错误探针已计入；无探针测量返回空值，不用 0% 代替无数据。 |
+| 已处理 · B / C | flag 仅约定红黄绿 | 已输出 C 的四个枚举并沿用最小 5 次审核、金标准告警至少 3 道错误探针的阈值 | 保留默认 basic 的样本不足结果；新增 `--profile oversight` 为两人各六次审核、三道错误探针。C 的 Session demo 目前只统计二元错误探针，后续如接 `modify` 题需与 Backend 口径对齐。 |
 | P1 · A / D | 方案为 XGBoost + SHAP / 前 3 个特征 | 模型为 LogisticRegression + 标准化/独热编码，输出前 5 个 log-odds 特征贡献 | B 按原值保存，不将系数贡献称为 SHAP。请 A/D 对齐海报、报告和讲解用语。 |
 | P1 · D | 报告描述当前系统的数据来源 | 报告仍固定写 A/B/C 为 mock，未使用 German Credit 和真实模型；C 最新 README 已准确区分模型、会话演示与未接入的数据库 | 对真实模型运行生成报告前，需要 D 确认并更新来源声明；当前 B 的 `demo_reset` 确实使用合成数据，不能将其说成真实模型结果。README 本次保留 C 最新版本，其中 B 接口状态仍需后续由维护者更新。 |
 | P1 · A / C | 金标准题在审核员视角不可识别 | 答案字段虽有脱敏函数，但 case_id 为 `GOLD-*`，闸门原因含 `Gold-standard oversight test` | C 不应将后台测试标记和原始测试原因显示给审核员；如需真正盲测，应由 A/C 协商匿名 ID 和展示策略。当前未修改两组实现。 |
@@ -56,7 +59,7 @@ review_view = public_review_payload(ledger.get_pending_reviews()[0])
 - `submit_review()` 仅接受共享 `ReviewAction`，重复审批和不合法参数不写入事件。`modify` 关闭当前审核任务并记录修改/暂缓意见，不执行贷款操作，也不生成不存在的最终二元决定。
 - `verify_chain()` 返回 `(True, None)` 或 `(False, 首个异常/缺失事件 ID)`；验证的是事件链，未覆盖独立 cases 状态表或提供外部可信锚定。
 
-## 本地复核
+## 第一步历史复核
 
 在同步后的 `0b41de2` 基线上，使用 Python 3.13.17 执行完整 pytest：**82 项测试通过，另有 22 个 subtest 通过**。包括 B 的 17 项后端测试、5 项团队接口集成测试，以及团队已有页面/报告契约测试。真实模型集成测试使用本地 German Credit 数据和临时训练产物；现有前端/报告测试中使用替身的部分仍只证明各自契约行为，不证明整个持久化 Demo 已完成。
 
