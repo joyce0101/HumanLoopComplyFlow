@@ -2,25 +2,29 @@
 
 ## Scope and status
 
-This is a **design-time evidence mapping** for the LoopLedger hackathon prototype, not legal advice, a demonstration of high-risk classification, an ISO certification or an attestation of compliance. The model and human review controls are mocks until replaced with the team's actual work. Applicability, adequate design and implementation must be independently assessed.
+LoopLedger is a **hackathon prototype** with a connected German Credit logistic-regression model, a risk gate, SQLite audit events, human review pages, oversight indicators and report exports. It does not make actual lending decisions. This document maps *potentially relevant evidence* to regulatory themes; it does not determine legal applicability, certify compliance, or provide legal advice.
 
-| Source | Relevant expectation (short description) | LoopLedger evidence | Remaining gap |
+| Source | Relevant expectation (summary) | LoopLedger supporting evidence | Remaining limitations |
 |---|---|---|---|
-| [EU AI Act Article 12](https://ai-act-service-desk.ec.europa.eu/en/ai-act/article-12) | Logging & traceability for high-risk AI systems | Prediction/gate/review event trail; per-event timestamp; chain verification | Event coverage, retention, completeness and operator access controls need validation |
-| [EU AI Act Article 13](https://ai-act-service-desk.ec.europa.eu/en/ai-act/article-13) | Transparency and adequate information to deployers | User-facing decision, confidence and mock factors | No validated explainability, instructions for use or measured limitations |
-| [EU AI Act Article 14](https://ai-act-service-desk.ec.europa.eu/en/ai-act/article-14) | Effective human oversight and mechanisms to interpret/override, including awareness of automation bias | Review UI, logged actions, timing, override rates, synthetic gold tests | Metrics are indirect proxies; training, interventions and true oversight effectiveness have not been validated |
-| [ISO/IEC 42001:2023](https://webstore.iec.ch/en/publication/90574) | Organizational AI management system and ongoing improvement | Summary metrics, traceability, evidence exports | Not a clause-by-clause management system review or accredited certification |
+| [EU AI Act Article 12](https://ai-act-service-desk.ec.europa.eu/en/ai-act/article-12) | Logging and traceability in applicable high-risk AI systems | Timestamped `prediction`, `gate`, `review` events and hash-chain consistency check | Local event log is not externally anchored; completeness, retention and access control are unverified |
+| [EU AI Act Article 13](https://ai-act-service-desk.ec.europa.eu/en/ai-act/article-13) | Transparency and appropriate interpretation of AI outputs | AI recommendation, confidence and top logistic-regression log-odds contributions displayed in the Review Queue | These contributions are not SHAP, validated explanations or full instructions for use |
+| [EU AI Act Article 14](https://ai-act-service-desk.ec.europa.eu/en/ai-act/article-14) | Effective oversight, intervention and mitigation of automation bias | Review decisions and reasons; elapsed time; override, short-reason and synthetic gold-control indicators | These are observational heuristics, not evidence that an individual truly or independently assessed the case |
+| [ISO/IEC 42001:2023](https://webstore.iec.ch/en/publication/90574) | Organizational AI management and continuous improvement | Evidence report, event statistics, oversight monitoring dashboard | Organizational management-system effectiveness and conformity have not been assessed |
 
-## How judges should read this
+## What the evidence does and does not say
 
-- **Evidence present:** The report shows what was technically logged or computed from the *demo*.
-- **Not established:** No claim that the system meets any cited legal or standard requirement in full.
-- **Missing controls:** Validated deployment procedures, complete transparency materials, access controls, log retention, real reviewer testing, governance processes and a formal risk assessment.
+**Present:** Demonstration records for the cases that exist in the selected local database; a consistency check for observed audit events; reviewer metrics and a downloadable structured report.
 
-## Terms
+**Not established:** Whether the event history is complete; whether reviewers are genuine, attentive or competent; whether model decisions are fair, accurate or lawful; whether any specific legal requirement applies or is satisfied.
 
-- **Override rate:** Share of human review actions differing from displayed AI advice; it is not by itself a measure of correctness.
-- **Gold-control catch rate:** Share of deliberately inverted synthetic AI suggestions that reviewers identified (by submitting the control's reference choice). Construct validity needs evaluation.
-- **Hash-chain integrity:** A chain consistency check over saved events. It does not guarantee append-only immutability against a privileged attacker.
-- **Heuristic flags:** Demo rules used to illustrate monitoring; not assessments of any real employees.
+The saved database can contain a mixture of real model-generated predictions and **synthetic fixtures**. A successful chain verification indicates internal consistency of observed events only. It does not prove an attacker with full database privileges has not replaced/recalculated the chain.
 
+## Metric definitions
+
+- **Override rate:** Proportion of matched reviews with an action differing from the model's advice; `modify` counts as an override. An override may be incorrect.
+- **Gold catch rate:** Among reviewed synthetic controls **where the model's recommendation differs from the expected action**, proportion where the review action exactly equals that action (`approve`, `reject` or `modify`). Correct-AI controls are excluded; no eligible sample is `null`/N/A, not 0%.
+- **Average review time:** Average recorded duration over usable timings. It may include time away from the page and does not establish attention.
+- **Short-reason rate:** Share of submitted review reasons shorter than 12 characters after trimming. This is not natural-language quality assessment.
+- **Heuristic flag:** `insufficient_data`, `watch`, `review_signals`, `no_alert`. Even `no_alert` does not establish effective human oversight.
+
+All interpretations refer to the prototype only. Confirm real deployment requirements separately with appropriate legal and domain experts.
