@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LoopLedger — Prototype</title>
+<script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+<style>
+  .bg-app { background: var(--background, #0d1117); }
+  .bg-card { background: var(--card, #161b22); }
+  .bg-side { background: var(--sidebar, #0b0f14); }
+  .bd { border-color: var(--border, #2a313c); }
+  .fg { color: var(--foreground, #e6edf3); }
+  .mfg { color: var(--muted-foreground, #8b949e); }
+  .bg-pri { background: var(--primary, #7c5cff); color: var(--primary-foreground, #fff); }
+  .txt-pri { color: var(--primary, #7c5cff); }
+  .bg-soft { background: var(--secondary, #21262d); }
+  .nav-item.active { background: var(--secondary, #21262d); color: var(--foreground, #e6edf3); }
+  .page { display: none; }
+  .page.active { display: block; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .case-item.active { outline: 2px solid var(--primary, #7c5cff); }
+</style>
+</head>
+<body class="bg-app fg antialiased">
+<div class="flex min-h-[760px]">
+
+  <!-- Sidebar -->
+  <aside class="bg-side border-r bd w-60 shrink-0 p-4 flex flex-col gap-1">
+    <div class="flex items-center gap-2 px-2 pb-5">
+      <div class="w-8 h-8 rounded-lg bg-pri flex items-center justify-center font-bold">L</div>
+      <div>
+        <div class="font-semibold">LoopLedger</div>
+        <div class="text-xs mfg">Oversight that proves itself</div>
+      </div>
+    </div>
+    <button class="nav-item active text-left px-3 py-2 rounded-lg text-sm mfg" data-page="batch">① Run Batch</button>
+    <button class="nav-item text-left px-3 py-2 rounded-lg text-sm mfg flex justify-between" data-page="review">② Review Queue <span id="pendingBadge" class="text-xs px-2 rounded-full bg-amber-500/20 text-amber-400">10</span></button>
+    <button class="nav-item text-left px-3 py-2 rounded-lg text-sm mfg flex justify-between" data-page="oversight">③ Oversight Dashboard <span class="text-xs px-2 rounded-full bg-red-500/20 text-red-400">1</span></button>
+    <button class="nav-item text-left px-3 py-2 rounded-lg text-sm mfg" data-page="compliance">④ Compliance & Evidence</button>
+    <div class="mt-auto text-xs mfg px-2 pt-6 border-t bd">
+      <div>Model: <span class="fg">credit-xgb v1.2</span></div>
+      <div>Reviewer: <span class="fg">alice@bank.eu</span></div>
+      <div class="mt-2 text-emerald-400">● Ledger chain intact</div>
+    </div>
+  </aside>
+
+  <main class="flex-1 p-8 overflow-auto">
+
+    <!-- ① Run Batch -->
+    <section id="page-batch" class="page active">
+      <h1 class="text-2xl font-semibold">Run Batch</h1>
+      <p class="mfg text-sm mt-1">Submit loan applications to the AI model. The risk gate decides which ones need a human.</p>
+
+      <div class="bg-card border bd rounded-xl p-5 mt-6 flex items-end gap-6">
+        <div class="flex-1">
+          <label class="text-sm mfg">Number of applications: <span id="nVal" class="fg font-semibold">50</span></label>
+          <input id="nSlider" type="range" min="10" max="200" value="50" class="w-full mt-2 accent-violet-500">
+        </div>
+        <div class="text-sm mfg">
+          Gate rules: <span class="fg">confidence &lt; 0.70</span> · <span class="fg">amount &gt; €10k</span> · <span class="fg">age &lt; 25</span>
+        </div>
+        <button id="runBtn" class="bg-pri px-5 py-2 rounded-lg text-sm font-medium">▶ Run</button>
+      </div>
+
+      <div class="grid grid-cols-4 gap-4 mt-6">
+        <div class="bg-card border bd rounded-xl p-4"><div class="text-xs mfg">Submitted</div><div id="sTotal" class="text-3xl font-semibold mt-1">50</div></div>
+        <div class="bg-card border bd rounded-xl p-4"><div class="text-xs mfg">Auto-decided</div><div id="sAuto" class="text-3xl font-semibold mt-1 text-emerald-400">40</div></div>
+        <div class="bg-card border bd rounded-xl p-4"><div class="text-xs mfg">Sent to human</div><div id="sReview" class="text-3xl font-semibold mt-1 text-amber-400">10</div></div>
+        <div class="bg-card border bd rounded-xl p-4"><div class="text-xs mfg">Gold-standard probes</div><div class="text-3xl font-semibold mt-1 txt-pri">3</div><div class="text-xs mfg">hidden in queue</div></div>
+      </div>
+
+      <div class="bg-card border bd rounded-xl mt-6 overflow-hidden">
+        <div class="px-5 py-3 border-b bd text-sm font-medium">Latest decisions</div>
+        <table class="w-full text-sm">
+          <thead class="mfg text-xs"><tr class="border-b bd">
+            <th class="text-left px-5 py-2">Case</th><th class="text-left">Amount</th><th class="text-left">AI decision</th><th class="text-left">Confidence</th><th class="text-left">Gate</th><th class="text-left">Status</th>
+          </tr></thead>
+          <tbody id="batchRows"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ② Review Queue -->
+    <section id="page-review" class="page">
+      <h1 class="text-2xl font-semibold">Review Queue</h1>
+      <p class="mfg text-sm mt-1">Cases the AI is unsure about or that carry high impact. Your decision and reasoning become audit evidence.</p>
+
+      <div class="grid grid-cols-12 gap-6 mt-6">
+        <div class="col-span-4 flex flex-col gap-2" id="queueList"></div>
+
+        <div class="col-span-8 bg-card border bd rounded-xl p-6">
+          <div class="flex justify-between items-start">
+            <div>
+              <div class="text-xs mfg">Case</div>
+              <div class="text-xl font-semibold mono" id="rCase">C-1042</div>
+            </div>
+            <div class="text-right">
+              <div class="text-xs mfg">Time on case</div>
+              <div class="text-xl font-semibold mono" id="timer">00:00</div>
+            </div>
+          </div>
+
+          <div class="flex gap-2 mt-3" id="rReasons"></div>
+
+          <div class="grid grid-cols-4 gap-3 mt-5 text-sm" id="rFeatures"></div>
+
+          <div class="grid grid-cols-2 gap-6 mt-6">
+            <div class="bg-soft rounded-xl p-4">
+              <div class="text-xs mfg">AI recommendation</div>
+              <div class="text-2xl font-semibold mt-1" id="rDecision">Reject</div>
+              <div class="text-xs mfg mt-3">Confidence</div>
+              <div class="w-full h-2 rounded-full bg-black/30 mt-1"><div id="rConfBar" class="h-2 rounded-full bg-amber-400" style="width:62%"></div></div>
+              <div class="text-sm mt-1 mono" id="rConf">0.62</div>
+            </div>
+            <div class="bg-soft rounded-xl p-4">
+              <div class="text-xs mfg mb-2">Why? — top factors (SHAP)</div>
+              <div id="rFactors" class="flex flex-col gap-2 text-sm"></div>
+            </div>
+          </div>
+
+          <div class="mt-6">
+            <label class="text-sm font-medium">Your reasoning <span class="text-red-400">*</span></label>
+            <textarea id="reason" rows="3" class="w-full mt-2 rounded-lg bg-soft border bd p-3 text-sm fg" placeholder="Explain why you agree or disagree with the AI. Required — recorded in the ledger."></textarea>
+          </div>
+          <div class="flex gap-3 mt-4">
+            <button class="act px-5 py-2 rounded-lg text-sm font-medium bg-emerald-600 text-white" data-act="approve">✓ Approve</button>
+            <button class="act px-5 py-2 rounded-lg text-sm font-medium bg-red-600 text-white" data-act="reject">✕ Reject</button>
+            <button class="act px-5 py-2 rounded-lg text-sm font-medium bg-soft border bd" data-act="modify">✎ Modify terms</button>
+            <div id="reviewMsg" class="text-sm self-center ml-2"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ③ Oversight Dashboard -->
+    <section id="page-oversight" class="page">
+      <h1 class="text-2xl font-semibold">Oversight Dashboard</h1>
+      <p class="mfg text-sm mt-1">Is human oversight actually working — or just rubber-stamping?</p>
+
+      <div class="mt-6 rounded-xl border border-red-500/40 bg-red-500/10 p-4 text-sm flex gap-3 items-start">
+        <div class="text-red-400 text-lg leading-none">⚠</div>
+        <div>
+          <div class="font-semibold text-red-300">Automation bias risk: bob@bank.eu</div>
+          <div class="mfg mt-1">Avg 2.1s per case · 0% overrides in 38 reviews · missed 3/3 gold-standard probes. Reviews by this user may not meet EU AI Act Art.14 "effective oversight".</div>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-4 gap-4 mt-6">
+        <div class="bg-card border bd rounded-xl p-4"><div class="text-xs mfg">Decisions logged</div><div class="text-3xl font-semibold mt-1">1,284</div></div>
+        <div class="bg-card border bd rounded-xl p-4"><div class="text-xs mfg">Human-reviewed</div><div class="text-3xl font-semibold mt-1">212</div><div class="text-xs mfg">16.5%</div></div>
+        <div class="bg-card border bd rounded-xl p-4"><div class="text-xs mfg">AI overridden</div><div class="text-3xl font-semibold mt-1">31</div><div class="text-xs mfg">14.6% of reviewed</div></div>
+        <div class="bg-card border bd rounded-xl p-4"><div class="text-xs mfg">Gold probes caught</div><div class="text-3xl font-semibold mt-1">9 / 15</div><div class="text-xs mfg">60%</div></div>
+      </div>
+
+      <div class="grid grid-cols-12 gap-6 mt-6">
+        <div class="col-span-7 bg-card border bd rounded-xl overflow-hidden">
+          <div class="px-5 py-3 border-b bd text-sm font-medium">Reviewer quality</div>
+          <table class="w-full text-sm">
+            <thead class="mfg text-xs"><tr class="border-b bd">
+              <th class="text-left px-5 py-2">Reviewer</th><th class="text-right">Reviews</th><th class="text-right">Avg time</th><th class="text-right">Override</th><th class="text-right">Gold caught</th><th class="text-right">Short reasons</th><th class="text-center px-4">Status</th>
+            </tr></thead>
+            <tbody>
+              <tr class="border-b bd"><td class="px-5 py-3">alice@bank.eu</td><td class="text-right">94</td><td class="text-right">48s</td><td class="text-right">18%</td><td class="text-right">5/5</td><td class="text-right">2%</td><td class="text-center"><span class="px-2 py-0.5 rounded-full text-xs bg-emerald-500/20 text-emerald-400">● Effective</span></td></tr>
+              <tr class="border-b bd"><td class="px-5 py-3">chen@bank.eu</td><td class="text-right">80</td><td class="text-right">19s</td><td class="text-right">9%</td><td class="text-right">4/7</td><td class="text-right">21%</td><td class="text-center"><span class="px-2 py-0.5 rounded-full text-xs bg-amber-500/20 text-amber-400">● Watch</span></td></tr>
+              <tr><td class="px-5 py-3">bob@bank.eu</td><td class="text-right">38</td><td class="text-right text-red-400">2.1s</td><td class="text-right text-red-400">0%</td><td class="text-right text-red-400">0/3</td><td class="text-right text-red-400">87%</td><td class="text-center"><span class="px-2 py-0.5 rounded-full text-xs bg-red-500/20 text-red-400">● Rubber-stamp</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="col-span-5 bg-card border bd rounded-xl p-5">
+          <div class="text-sm font-medium">Time spent per review</div>
+          <div class="text-xs mfg">Seconds · reviews under 5s flagged</div>
+          <svg viewBox="0 0 320 170" class="w-full mt-3">
+            <line x1="30" y1="140" x2="315" y2="140" stroke="currentColor" opacity=".2"/>
+            <rect x="42" y="20" width="32" height="120" rx="3" fill="#f87171"/>
+            <rect x="86" y="90" width="32" height="50" rx="3" fill="#fbbf24"/>
+            <rect x="130" y="70" width="32" height="70" rx="3" fill="#a78bfa"/>
+            <rect x="174" y="50" width="32" height="90" rx="3" fill="#a78bfa"/>
+            <rect x="218" y="80" width="32" height="60" rx="3" fill="#a78bfa"/>
+            <rect x="262" y="105" width="32" height="35" rx="3" fill="#a78bfa"/>
+            <g font-size="12" fill="currentColor" opacity=".6" text-anchor="middle">
+              <text x="58" y="158">&lt;5</text><text x="102" y="158">5–15</text><text x="146" y="158">15–30</text>
+              <text x="190" y="158">30–60</text><text x="234" y="158">60–120</text><text x="278" y="158">120+</text>
+            </g>
+            <text x="58" y="14" font-size="12" fill="#f87171" text-anchor="middle">bob</text>
+          </svg>
+        </div>
+      </div>
+    </section>
+
+    <!-- ④ Compliance -->
+    <section id="page-compliance" class="page">
+      <h1 class="text-2xl font-semibold">Compliance & Evidence</h1>
+      <p class="mfg text-sm mt-1">Every oversight action is already evidence. Export it, mapped to regulation.</p>
+
+      <div class="grid grid-cols-12 gap-6 mt-6">
+        <div id="chainCard" class="col-span-5 rounded-xl border p-5 border-emerald-500/40 bg-emerald-500/10">
+          <div class="text-xs mfg">Tamper-evident ledger</div>
+          <div id="chainStatus" class="text-2xl font-semibold mt-1 text-emerald-400">✅ Chain intact</div>
+          <div id="chainDetail" class="text-sm mfg mt-1">1,284 records · head <span class="mono">a3f9…e21c</span></div>
+          <div class="flex gap-3 mt-4">
+            <button id="verifyBtn" class="bg-pri px-4 py-2 rounded-lg text-sm">Verify chain</button>
+            <button id="tamperBtn" class="px-4 py-2 rounded-lg text-sm bg-soft border bd">⚠ Simulate tampering</button>
+          </div>
+        </div>
+        <div class="col-span-7 bg-card border bd rounded-xl p-5">
+          <div class="text-sm font-medium">Export evidence pack</div>
+          <div class="text-xs mfg mt-1">Period: 2026-10-01 → 2026-10-24 · System: credit-xgb v1.2</div>
+          <div class="flex gap-3 mt-4">
+            <button class="exp bg-pri px-4 py-2 rounded-lg text-sm">⬇ Report (PDF)</button>
+            <button class="exp px-4 py-2 rounded-lg text-sm bg-soft border bd">⬇ Markdown</button>
+            <button class="exp px-4 py-2 rounded-lg text-sm bg-soft border bd">⬇ Raw ledger (JSON)</button>
+          </div>
+          <div id="expMsg" class="text-sm text-emerald-400 mt-3"></div>
+        </div>
+      </div>
+
+      <div class="bg-card border bd rounded-xl mt-6 overflow-hidden">
+        <div class="px-5 py-3 border-b bd text-sm font-medium">Regulation mapping</div>
+        <table class="w-full text-sm">
+          <thead class="mfg text-xs"><tr class="border-b bd"><th class="text-left px-5 py-2">Requirement</th><th class="text-left">What it asks</th><th class="text-left">Evidence from LoopLedger</th><th class="text-center px-4">Status</th></tr></thead>
+          <tbody>
+            <tr class="border-b bd"><td class="px-5 py-3 font-medium">EU AI Act Art.12</td><td class="mfg">Automatic record-keeping</td><td>1,284 hash-chained decision logs</td><td class="text-center"><span class="text-emerald-400">● Met</span></td></tr>
+            <tr class="border-b bd"><td class="px-5 py-3 font-medium">EU AI Act Art.13</td><td class="mfg">Transparency to deployers</td><td>SHAP explanation attached to every decision</td><td class="text-center"><span class="text-emerald-400">● Met</span></td></tr>
+            <tr class="border-b bd"><td class="px-5 py-3 font-medium">EU AI Act Art.14</td><td class="mfg">Effective human oversight, aware of automation bias</td><td>212 reviews w/ reasons · quality metrics · 1 reviewer flagged</td><td class="text-center"><span class="text-amber-400">● Action needed</span></td></tr>
+            <tr><td class="px-5 py-3 font-medium">ISO/IEC 42001</td><td class="mfg">Traceable AI management</td><td>Exportable evidence pack, threshold change log</td><td class="text-center"><span class="text-emerald-400">● Met</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="bg-card border bd rounded-xl mt-6 overflow-hidden">
+        <div class="px-5 py-3 border-b bd text-sm font-medium">Ledger (latest)</div>
+        <table class="w-full text-sm mono">
+          <thead class="mfg text-xs"><tr class="border-b bd"><th class="text-left px-5 py-2">#</th><th class="text-left">Time</th><th class="text-left">Event</th><th class="text-left">Case</th><th class="text-left">prev_hash</th><th class="text-left">hash</th></tr></thead>
+          <tbody id="ledgerRows"></tbody>
+        </table>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<script>
+// ---------- Navigation ----------
+document.querySelectorAll('.nav-item').forEach(b => b.onclick = () => {
+  document.querySelectorAll('.nav-item').forEach(x => x.classList.remove('active'));
+  document.querySelectorAll('.page').forEach(x => x.classList.remove('active'));
+  b.classList.add('active');
+  document.getElementById('page-' + b.dataset.page).classList.add('active');
+});
+
+// ---------- Run Batch ----------
+const rows = [
+  ['C-1041','€3,200','Approve',0.94,'—','auto'],
+  ['C-1042','€12,500','Reject',0.62,'low_confidence · high_amount','pending'],
+  ['C-1043','€1,800','Approve',0.88,'—','auto'],
+  ['C-1044','€6,400','Reject',0.91,'—','auto'],
+  ['C-1045','€4,100','Approve',0.67,'low_confidence','pending'],
+  ['C-1046','€2,900','Approve',0.81,'age<25','pending'],
+];
+function renderBatch() {
+  document.getElementById('batchRows').innerHTML = rows.map(r => `
+    <tr class="border-b bd"><td class="px-5 py-2 mono">${r[0]}</td><td>${r[1]}</td>
+    <td class="${r[2]==='Approve'?'text-emerald-400':'text-red-400'}">${r[2]}</td>
+    <td class="mono">${r[3].toFixed(2)}</td><td class="mfg">${r[4]}</td>
+    <td>${r[5]==='auto'?'<span class="text-xs px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400">Auto</span>':'<span class="text-xs px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400">→ Human</span>'}</td></tr>`).join('');
+}
+renderBatch();
+const slider = document.getElementById('nSlider');
+slider.oninput = () => document.getElementById('nVal').textContent = slider.value;
+document.getElementById('runBtn').onclick = () => {
+  const n = +slider.value, rev = Math.round(n * 0.2);
+  document.getElementById('sTotal').textContent = n;
+  document.getElementById('sAuto').textContent = n - rev;
+  document.getElementById('sReview').textContent = rev;
+  document.getElementById('pendingBadge').textContent = rev;
+};
+
+// ---------- Review Queue ----------
+const cases = [
+  {id:'C-1042', amount:'€12,500', dec:'Reject', conf:0.62, reasons:['low_confidence','high_amount'],
+   f:{Age:'34',Duration:'48 mo',Purpose:'Business',Savings:'< €100',Employment:'4 yrs',Housing:'Rent',Credit_history:'Paid duly',Dependants:'2'},
+   shap:[['Savings < €100',-0.31],['Duration 48 mo',-0.22],['Employment 4 yrs',+0.12]]},
+  {id:'C-1045', amount:'€4,100', dec:'Approve', conf:0.67, reasons:['low_confidence'],
+   f:{Age:'41',Duration:'24 mo',Purpose:'Car',Savings:'€500–1k',Employment:'7 yrs',Housing:'Own',Credit_history:'Delayed once',Dependants:'1'},
+   shap:[['Housing: Own',+0.24],['Employment 7 yrs',+0.18],['Delayed payment',-0.15]]},
+  {id:'C-1046', amount:'€2,900', dec:'Approve', conf:0.81, reasons:['age<25'],
+   f:{Age:'22',Duration:'12 mo',Purpose:'Education',Savings:'< €100',Employment:'1 yr',Housing:'Rent',Credit_history:'No credits',Dependants:'0'},
+   shap:[['Duration 12 mo',+0.27],['Amount small',+0.19],['Age 22',-0.08]]},
+  {id:'C-1049', amount:'€15,000', dec:'Approve', conf:0.58, reasons:['low_confidence','high_amount'],
+   f:{Age:'29',Duration:'60 mo',Purpose:'Furniture',Savings:'< €100',Employment:'Unemployed',Housing:'Free',Credit_history:'Critical',Dependants:'3'},
+   shap:[['Purpose: Furniture',+0.09],['Duration 60 mo',-0.20],['Critical history',-0.28]]},
+];
+let cur = 0, t0 = Date.now(), done = new Set();
+function renderQueue() {
+  document.getElementById('queueList').innerHTML = cases.map((c,i) => `
+    <button class="case-item text-left bg-card border bd rounded-xl p-4 ${i===cur?'active':''} ${done.has(i)?'opacity-40':''}" data-i="${i}">
+      <div class="flex justify-between"><span class="mono font-medium">${c.id}</span><span class="text-xs mfg">${c.amount}</span></div>
+      <div class="text-xs mt-1 ${c.dec==='Approve'?'text-emerald-400':'text-red-400'}">AI: ${c.dec} · ${c.conf.toFixed(2)}</div>
+      <div class="text-xs mfg mt-1">${done.has(i)?'✓ reviewed':c.reasons.join(' · ')}</div>
+    </button>`).join('') + `<div class="text-xs mfg px-1 pt-1">+ 6 more pending</div>`;
+  document.querySelectorAll('.case-item').forEach(b => b.onclick = () => { cur = +b.dataset.i; t0 = Date.now(); renderCase(); renderQueue(); });
+}
+function renderCase() {
+  const c = cases[cur];
+  document.getElementById('rCase').textContent = c.id;
+  document.getElementById('rReasons').innerHTML = c.reasons.map(r => `<span class="text-xs px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400">${r}</span>`).join('');
+  document.getElementById('rFeatures').innerHTML = [['Amount',c.amount],...Object.entries(c.f)].slice(0,8).map(([k,v]) =>
+    `<div class="bg-soft rounded-lg p-3"><div class="text-xs mfg">${k.replace('_',' ')}</div><div class="font-medium">${v}</div></div>`).join('');
+  const d = document.getElementById('rDecision');
+  d.textContent = c.dec; d.className = 'text-2xl font-semibold mt-1 ' + (c.dec==='Approve'?'text-emerald-400':'text-red-400');
+  document.getElementById('rConf').textContent = c.conf.toFixed(2);
+  const bar = document.getElementById('rConfBar');
+  bar.style.width = (c.conf*100)+'%'; bar.className = 'h-2 rounded-full ' + (c.conf<0.7?'bg-amber-400':'bg-emerald-400');
+  document.getElementById('rFactors').innerHTML = c.shap.map(([n,v]) => `
+    <div><div class="flex justify-between text-xs"><span>${n}</span><span class="mono ${v>0?'text-emerald-400':'text-red-400'}">${v>0?'+':''}${v.toFixed(2)}</span></div>
+    <div class="w-full h-1.5 bg-black/30 rounded-full mt-1"><div class="h-1.5 rounded-full ${v>0?'bg-emerald-400':'bg-red-400'}" style="width:${Math.abs(v)*250}%"></div></div></div>`).join('');
+  document.getElementById('reason').value = '';
+  document.getElementById('reviewMsg').textContent = '';
+}
+setInterval(() => {
+  const s = Math.floor((Date.now()-t0)/1000);
+  document.getElementById('timer').textContent = String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0');
+}, 500);
+document.querySelectorAll('.act').forEach(b => b.onclick = () => {
+  const msg = document.getElementById('reviewMsg');
+  const reason = document.getElementById('reason').value.trim();
+  const secs = ((Date.now()-t0)/1000).toFixed(1);
+  if (!reason) { msg.innerHTML = '<span class="text-red-400">Reason is required.</span>'; return; }
+  const warn = secs < 5 ? ' <span class="text-amber-400">⚠ reviewed in '+secs+'s — flagged</span>' : '';
+  msg.innerHTML = `<span class="text-emerald-400">✓ ${b.dataset.act} logged · hash ${Math.random().toString(16).slice(2,6)}…</span>${warn}`;
+  done.add(cur);
+  document.getElementById('pendingBadge').textContent = Math.max(0, 10 - done.size);
+  setTimeout(() => { const nxt = cases.findIndex((_,i)=>!done.has(i)); if (nxt>=0) { cur = nxt; t0 = Date.now(); renderCase(); } renderQueue(); }, 1200);
+});
+renderQueue(); renderCase();
+
+// ---------- Compliance ----------
+const ledger = [
+  [1284,'11:42:08','review','C-1042','7be1…90af','a3f9…e21c'],
+  [1283,'11:41:55','gate','C-1042','c40d…11b2','7be1…90af'],
+  [1282,'11:41:55','prediction','C-1042','e9a2…5f03','c40d…11b2'],
+  [1281,'11:41:54','prediction','C-1041','02cc…a7d4','e9a2…5f03'],
+  [1280,'11:40:12','review','C-1038','f1e0…3c88','02cc…a7d4'],
+];
+let tampered = false;
+function renderLedger() {
+  document.getElementById('ledgerRows').innerHTML = ledger.map(r => {
+    const bad = tampered && r[0] === 1281;
+    return `<tr class="border-b bd ${bad?'bg-red-500/15':''}"><td class="px-5 py-2">${r[0]}</td><td>${r[1]}</td><td>${r[2]}</td><td>${r[3]}</td>
+      <td class="mfg">${r[4]}</td><td class="${bad?'text-red-400':''}">${bad?'≠ mismatch':r[5]}</td></tr>`;
+  }).join('');
+}
+renderLedger();
+function setChain(ok) {
+  const card = document.getElementById('chainCard'), st = document.getElementById('chainStatus'), dt = document.getElementById('chainDetail');
+  if (ok) {
+    card.className = 'col-span-5 rounded-xl border p-5 border-emerald-500/40 bg-emerald-500/10';
+    st.className = 'text-2xl font-semibold mt-1 text-emerald-400'; st.textContent = '✅ Chain intact';
+    dt.innerHTML = '1,284 records · head <span class="mono">a3f9…e21c</span>';
+  } else {
+    card.className = 'col-span-5 rounded-xl border p-5 border-red-500/40 bg-red-500/10';
+    st.className = 'text-2xl font-semibold mt-1 text-red-400'; st.textContent = '❌ Tampered at #1281';
+    dt.innerHTML = 'Record #1281 payload changed after logging. All later hashes invalid.';
+  }
+}
+document.getElementById('tamperBtn').onclick = () => { tampered = !tampered; renderLedger();
+  document.getElementById('tamperBtn').textContent = tampered ? '↺ Restore' : '⚠ Simulate tampering'; };
+document.getElementById('verifyBtn').onclick = () => setChain(!tampered);
+document.querySelectorAll('.exp').forEach(b => b.onclick = () =>
+  document.getElementById('expMsg').textContent = '✓ evidence_pack_2026-10-24 generated (mock) — 4 sections, 1,284 records, SHA-256 head a3f9…e21c');
+</script>
+</body>
+</html>

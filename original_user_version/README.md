@@ -1,0 +1,309 @@
+# LoopLedger
+
+**Oversight that proves itself. — 会自证的人工监督。**
+
+Synoptix Responsible AI Hackathon 项目，结合 **HumanLoop（AI 人工监督）** 与 **ComplyFlow（合规证据整理）**。项目以贷款审批分类器为演示场景，将高风险或低置信度的 AI 决策交给人工审核，记录审核过程，并生成可追溯的证据报告。
+
+## 当前状态
+
+**当前已接通批量预测、风险分流、数据库审批、监督指标及证据导出的原型流程。** 四个业务页面固定使用已实现的模型、数据库、指标和报告接口，不再提供数据来源选择项。系统用于演示和验证，不执行实际放款。
+
+| 内容 | 状态 |
+| --- | --- |
+| 项目方案、执行计划与接口契约 | 已写入文档 |
+| Python 包、Streamlit 页面、报告模板与脚本 | 已实现并接入主要业务接口 |
+| HTML 交互原型 | 已有模拟数据原型，尚未接入 Python 模块 |
+| 模型训练与风险闸门 | 已接入逻辑回归预测、特征贡献及风险分流 |
+| 数据库与审计链 | 已接入业务读写、哈希链记录与完整性校验 |
+| 人工审批、监督质量指标与证据导出 | 已接入数据库队列、持久化指标和 Markdown / JSON 报告 |
+| 端到端验证与演示 | 已有隔离数据库下的自动化集成验证，仍需团队演示验收 |
+
+## 业务流程
+
+1. **生成预测**：使用 German Credit 数据集训练贷款审批分类器，输出决策、置信度和特征贡献。当前实现为逻辑回归及各项对数几率贡献；XGBoost / SHAP 是原方案，尚未接入。
+2. **风险分流**：由风险闸门检查预测，将需要人工判断的申请送入审批队列。
+3. **人工审核**：展示申请信息和 AI 建议，记录审核员的操作、理由与审阅时长。
+4. **记录证据**：使用 SQLite 保存业务状态与哈希链审计日志，并提供链完整性检查。
+5. **观察监督质量**：计算审阅时长、推翻 AI 的比例、短理由比例和金标准题检出率，辅助识别监督异常。
+6. **导出报告**：汇总事件、指标与项目文档中的法规映射，生成 Markdown / JSON 证据包；PDF 为可选扩展。
+
+## 功能说明
+
+### 批量运行与数据保存
+
+**Run Batch** 从 German Credit 测试集抽取申请，调用模型生成建议，再由风险闸门决定是否需要人工审核。预测和分流结果通过账本接口保存到 `loopledger.db`。
+
+页面上的数量是**本次批次的处理数量**；审核队列显示的是**数据库中累计尚未完成的人工审核数量**。每次点击 **Run batch** 都会新增批次，不会清空或替换已有申请。
+
+当前抽样使用固定随机种子，相同批量大小会抽到相同的数据集样本，但每次生成新的批次号和申请编号。因此重复运行可能产生内容相同的申请，系统尚未按数据集原始样本去重。
+
+### 身份验证、风险闸门与人工审核
+
+勾选 **Assume identity verified for this dataset demo**，表示为本次申请设置 `identity_verified=True`，假设身份材料已经核验。German Credit 数据本身没有身份核验凭证；此选项不会实际核验身份，也不代表 AI 已批准申请。
+
+以下任一条件成立，申请都会进入人工审核队列：
+
+| 条件 | 处理方式 |
+| --- | --- |
+| 身份未验证，或缺少明确的验证标记 | 人工审核 |
+| 模型置信度低于 `0.70` | 人工审核 |
+| 贷款金额超过 `15,000` 数据集单位 | 人工审核 |
+| 金标准控制样例 | 始终人工审核 |
+| 置信度、金额或 AI 决策无效，以及申请编号不一致 | 人工审核 |
+
+只有全部闸门规则通过，才会按 AI 建议自动记录为批准或拒绝，不进入人工队列。上述阈值是演示规则，不代表经过验证的贷款政策。
+
+例如，两次各运行 50 条：第一批因身份未验证而全部待审；第二批假设身份已验证，其中 31 条自动批准、5 条自动拒绝、14 条因低置信度待审。若尚未提交人工审批，累计待审就是 `50 + 14 = 64` 条。这里的数字用于解释计数方式，并非每次运行的固定结果。
+
+### Top contributing factors：五项主要影响因素
+
+审核页的 **Top contributing factors** 展示当前申请中，对模型输出影响最大的五个编码后特征。它们按贡献值的绝对值从大到小排列，**不同申请可能显示不同的五项，并非固定的五个审核指标**。
+
+当前逻辑回归模型将预处理后的特征值乘以对应系数，得到该项对“不良信用”对数几率（log-odds）的贡献：`贡献值 = 模型系数 × 预处理后的特征值`。图表的读取方式如下：
+
+- **正值／红色／向右**：推动模型倾向于拒绝申请。
+- **负值／绿色／向左**：推动模型倾向于批准申请。
+- **条形越长**：该项在本次预测中的贡献绝对值越大，不代表它对所有申请都最重要。
+- **数值不是概率或百分比**：例如 `+0.70` 不表示拒绝概率增加 70 个百分点。最终结果由全部特征贡献和模型截距共同决定，不能只把图上的五项相加判断结论。
+
+以一条模型申请的五项结果为例：
+
+| 图中字段 | 字段及编码含义 | 示例贡献值 | 对这次预测的影响 |
+| --- | --- | ---: | --- |
+| `cat__purpose_A41` | 贷款用途为购买二手车 | `-0.7091` | 倾向批准 |
+| `cat__property_magnitude_A124` | 财产信息未知或无财产；不能仅据此断定申请人没有财产 | `+0.7072` | 倾向拒绝 |
+| `cat__savings_status_A61` | 储蓄账户／债券金额低于 100 DM（原始数据单位） | `+0.6987` | 倾向拒绝 |
+| `cat__checking_status_A11` | 活期账户余额低于 0 DM | `+0.6720` | 倾向拒绝 |
+| `cat__employment_A74` | 当前工作的任职时长为至少 4 年、少于 7 年 | `-0.6033` | 倾向批准 |
+
+字段名称中的 `cat__` 表示类别特征经过独热编码，末尾的 `A41`、`A124` 等是数据集类别代码。`num__` 表示经过标准化的数值特征，例如 `num__credit_amount` 是贷款金额、`num__duration` 是贷款期限（月）、`num__age` 是年龄（年）；图中显示的是这些特征的贡献值，而非原始金额、月数或年龄。
+
+其他可能出现的原始字段含义如下；具体类别代码可查阅 [German Credit 字段说明](./dataset/statlog+german+credit+data/german.doc)：
+
+| 原始字段 | 含义 |
+| --- | --- |
+| `credit_history` | 历史贷款和还款记录 |
+| `installment_commitment` | 分期还款占可支配收入的比例编码 |
+| `personal_status` | 数据集中的性别与婚姻状态组合类别 |
+| `other_parties` | 是否存在共同申请人或担保人 |
+| `residence_since` | 在当前住所的居住时长 |
+| `other_payment_plans` | 是否存在银行或商店的其他分期付款计划 |
+| `housing` | 住房状况：租住、自有或免费居住 |
+| `existing_credits` | 在该银行已有的贷款数量 |
+| `job` | 职业类别 |
+| `num_dependents` | 需要负担生活费用的人数 |
+| `own_telephone` | 是否有以申请人姓名登记的电话 |
+| `foreign_worker` | 数据集记录的外籍务工人员标记 |
+
+上述解释对应当前模型的 log-odds 贡献，不能视为因果结论，也不是 SHAP 值。`identity_verified` 是风险闸门使用的业务标记，不参与这 20 个原始特征的模型计算。没有提供贡献值的申请会显示说明，不会补造五项解释。
+
+### 人工审批与监督指标
+
+**Review Queue** 读取数据库中的累计待审申请。审核员填写姓名和理由后，可以批准或拒绝。提交成功后，申请退出待审队列，审核操作、理由和用时写入审计事件。
+
+申请资料除贷款金额、期限和年龄外，还展示贷款用途、信用记录、该银行现有贷款数量、其他分期计划、共同申请人／担保人，以及活期账户、储蓄、工作年限、住房、财产和需负担生活费用的人数。类别编码会转换成可读说明；缺失字段显示 `Not provided`，未知编码保留提示，不将缺失信息当作零或“没有”。账户与储蓄区间沿用原始数据的 DM 单位。
+
+当前审核页面只提供批准／拒绝，不提供 **Modify / hold**。后台共享接口仍支持 `modify`，表示调整或补充证据请求，不代表批准贷款。
+
+**Oversight Dashboard** 通过指标接口读取数据库中的申请数量、审核用时、推翻 AI 的比例、短理由比例及金标准题检出率。没有可用测量时显示空值；样本不足时保留提示，监控标记仅用于辅助检查。
+
+### 金标准案例与演示标记
+
+**金标准案例（Gold cases）** 是预先设定正确审核动作的控制样例，用来观察审核员是否检查了申请证据、能否发现 AI 建议中的错误。当前案例由演示规则人工构造，不是专家验证的真实贷款结论；相关实现见 [gold.py](./loopledger/gold.py)。
+
+部分案例故意设置错误的 AI 建议，也保留 AI 建议正确的对照案例。例如：
+
+| 申请情形 | 展示的 AI 建议 | 预设正确动作 | 检查目的 |
+| --- | --- | --- | --- |
+| 缺少身份验证证据 | 批准 | `modify`：暂缓并要求补充身份材料 | 是否发现必要证据缺失 |
+| 已确认身份欺诈 | 批准 | `reject`：拒绝 | 是否发现 AI 错误批准 |
+| 所有演示政策检查均通过 | 批准 | `approve`：批准 | 正确建议的对照，避免把一律反对 AI 当作认真审核 |
+
+金标准案例标记为 `is_gold=True`，风险闸门始终将其送入人工审核。当前 A 的控制样例中，置信度 `0.95` 是脚本设定的演示值，不是模型实际预测的概率；这些样例没有提供特征贡献，页面会显示相应说明。
+
+为方便评委演示，审核页的 **Choose an application** 下拉框以 `🟨 GOLD · APP-…` 标记金标准案例，详情中也会显示测试题提示。标准答案 `gold_correct_decision` 仍保留在后台。所有申请使用由原始 `case_id` 计算得到的 `APP-…` 显示编号，提交时仍使用原始编号，不会新增申请或改变记录关联。批量页显示原始 `case_id`，因此两页的可见编号不同。
+
+当前是可见控制题演示；审核员知道哪些是测试题，其检出率不能直接作为隐藏抽检的效果证据。
+
+后台保留标准答案，并在完成审核后计算 **Gold catch rate（金标准题检出率）**：
+
+```text
+检出率 = 正确处理的 AI 错误控制案例数 ÷ 已完成审核的 AI 错误控制案例数
+```
+
+只有 AI 建议与预设正确动作不同的金标准案例进入上述分母，人工动作必须与标准答案一致才算检出；`modify` 也是一种有效标准答案。AI 建议本来就正确的对照案例、尚未审核的案例不进入该分母。没有可用的错误控制案例时，指标为空，不表示检出率为 0%。
+
+**当前评分限制：** 部分控制题的预设正确动作是 `modify`，但审核页只有批准／拒绝，因此无法通过当前页面答对这些题。它们仍进入错误检出率分母，会使检出率降低；不能据此认定审核员不认真或审核不可信。当前金标准评分仅用于演示，后续需先统一可选动作与控制题答案，再评估审核员表现。
+
+**Run Batch 会按约 10% 的比例自动混入金标准案例，批次总数保持不变。** 例如运行 50 条会生成 45 条模型申请和 5 条控制题，并打乱顺序。控制题数量按比例四舍五入，因此运行 1–4 条时不会加入控制题。控制题模板按固定顺序循环复用；随机打乱顺序不代表随机生成新的题型。
+
+### 审计校验与报告导出
+
+**Compliance** 调用链校验和报告接口，提供链校验、Markdown 报告预览和 Markdown / JSON 下载。生成失败时不提供下载；重新校验会使旧报告失效。
+
+链校验检查本地审计事件的一致性，不验证所有申请表记录，也不能证明历史记录完整或系统具备合规认证。
+
+## 技术方案
+
+实现以 [PLAN.md](./PLAN.md) 中的决策和接口契约为准。
+
+| 部分 | 当前实现与计划 |
+| --- | --- |
+| 界面与应用入口 | Streamlit，直接调用 Python 模块，不单独启动 API 服务 |
+| 模型与解释 | scikit-learn 逻辑回归及特征贡献；XGBoost / SHAP 为原计划 |
+| 数据集 | 本地 German Credit 文件 `dataset/statlog+german+credit+data/german.data` |
+| 持久化 | SQLite 单文件 `loopledger.db`，已接入申请、审批与审计事件保存 |
+| 数据处理与图表 | pandas、Plotly |
+| 报告模板 | Jinja2 |
+
+## 项目结构
+
+```text
+HumanLoopComplyFlow/
+├── README.md
+├── LoopLedger.md                   # 项目方案与演示构想
+├── PLAN.md                         # 分工、接口契约与验收要求
+├── requirements.txt
+├── app.py                          # Streamlit 入口
+├── loopledger/
+│   ├── __init__.py
+│   ├── schemas.py                  # 共享数据结构
+│   ├── model.py                    # 逻辑回归训练、预测与特征贡献
+│   ├── gate.py                     # 风险闸门
+│   ├── gold.py                     # 金标准测试题
+│   ├── ledger.py                   # SQLite 与哈希链日志
+│   ├── metrics.py                  # 监督质量指标
+│   └── evidence.py                 # 证据包生成
+├── pages/
+│   ├── 1_Run_Batch.py              # 批量提交申请
+│   ├── 2_Review_Queue.py           # 人工审批
+│   ├── 3_Oversight_Dashboard.py    # 监督质量面板
+│   └── 4_Compliance.py             # 证据导出与篡改检测
+├── templates/
+│   └── evidence_report.md.j2       # 证据报告模板
+├── scripts/
+│   └── demo_reset.py              # Demo 数据重置脚本
+└── prototype/
+    └── index.html                 # 使用模拟数据的交互原型
+```
+
+## 开发环境准备
+
+需要 Python 3、Git，以及访问 GitHub 和 Python 包源的网络连接。以下为 macOS / Linux 命令：
+
+```bash
+git clone git@github.com:joyce0101/HumanLoopComplyFlow.git
+cd HumanLoopComplyFlow
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+```
+
+SSH 克隆需要 GitHub SSH 密钥配置。也可使用 HTTPS 地址：
+
+```bash
+git clone https://github.com/joyce0101/HumanLoopComplyFlow.git
+```
+
+批量页面读取本地 German Credit 数据和已有模型文件。需要重新训练时，在项目根目录运行：
+
+```bash
+python -m loopledger.model --train
+```
+
+### 查看界面原型
+
+用浏览器打开 [prototype/index.html](./prototype/index.html)。原型包含批量运行、审批队列、监督面板和证据页面，使用模拟数据；其中的统计、导出和链校验结果用于展示界面交互。页面样式依赖外部脚本，加载样式需要网络。
+
+### 启动前端页面
+
+完成上面的依赖安装并激活对应的 Python 环境后，在项目根目录（包含 `app.py` 的文件夹）运行：
+
+```bash
+python -m streamlit run app.py
+```
+
+例如，在当前这台 Mac 上，可以执行：
+
+```bash
+cd /Users/lanqiuying/Desktop/synoptix
+python -m streamlit run app.py
+```
+
+队友使用自己的项目路径；Windows、macOS 和 Linux 的 Streamlit 启动命令相同。需要通过 `python -m streamlit run` 启动网页服务，直接执行 `python app.py` 不会启动前端网页。
+
+启动后，浏览器通常会自动打开；如果没有，请打开终端显示的 `Local URL`，默认一般为 `http://localhost:8501`。通过左侧边栏切换页面：
+
+- **Run Batch**：默认运行模型并将预测及分流结果保存到数据库。
+- **Review Queue**：默认读取数据库待审队列，可查看 AI 建议并提交审核决定。
+- **Oversight Dashboard**：默认展示数据库中的监督指标。
+- **Compliance**：默认调用真实链校验和报告接口，预览并下载 Markdown / JSON。
+
+`app.py` 首页提供流程说明和四个业务页面入口，也可从左侧边栏进入各页面。四页固定使用已接入的接口，数据库记录在浏览器刷新后仍保留。
+
+运行期间保持终端开启。在该终端按 `Ctrl+C` 可停止前端服务。更新 Python 模块接口后，如仍提示缺少新函数，请停止并重新启动服务，使其加载新版本模块。演示数据脚本的用法可通过 `python scripts/demo_reset.py --help` 查看。
+
+## 团队分工与协作
+
+| 角色 | 负责内容 | 主要文件 |
+| --- | --- | --- |
+| A：ML 工程师 | 模型、解释、风险闸门、金标准题 | `model.py`、`gate.py`、`gold.py` |
+| B：后端 / 数据工程师 | 数据库、哈希链、监督指标、数据重置 | `ledger.py`、`metrics.py`、`scripts/demo_reset.py` |
+| C：前端工程师 | Streamlit 入口与全部页面 | `app.py`、`pages/` |
+| D：合规 / 产品 / Pitch | 证据报告、法规映射、海报与演示 | `evidence.py`、`templates/` |
+
+每人在独立分支开发，在计划检查点合并到 `main`。开发前先阅读 [PLAN.md](./PLAN.md) 第 3 节，按共享数据结构和函数签名实现；共享契约的改动需要全队确认。
+
+## 文档
+
+- [LoopLedger.md](./LoopLedger.md)：项目背景、目标流程、监督指标与演示构想。
+- [PLAN.md](./PLAN.md)：技术决策、四人分工、接口契约、数据库设计与验收检查点。
+
+---
+
+### Reviewer access control — mandatory login and verification (local prototype)
+
+All five Streamlit entry points now call `verification_ui.require_workspace_access()`
+**before** displaying any workflow data or creating business controls. Opening a
+page directly via its URL does not bypass the gate.
+
+**Order:** create account (first use) → sign in → consent to live challenge → blink
+twice and turn both ways → click **Finish verification and enter workspace** →
+Run Batch / Review Queue / Oversight Dashboard / Compliance. After 20 minutes,
+a new entry challenge is required. Logging out removes the access grant.
+
+- Default with **no environment variables**: `camera` (mandatory account login
+  + live MediaPipe challenge).
+- `$env:LOOPLEDGER_REVIEWER_VERIFY_MODE="camera"`: same required mode.
+- `$env:LOOPLEDGER_REVIEWER_VERIFY_MODE="full"`: also requires local Windows
+  mouse motion + OS cursor / screen-visible cursor comparison for entry and
+  each case review. Only works when server/browser share one Windows machine.
+- **`off` is not supported.** An old explicitly-set `off` value raises a
+  configuration error instead of silently bypassing verification. The obsolete
+  `LOOPLEDGER_LIVENESS_MODE` option is ignored.
+
+Review Queue additionally requires a **new application-specific live challenge**
+before its approve / reject buttons unlock. Its database write always uses the
+existing signed `ledger.submit_verified_review()` API; no unauthenticated
+submit fallback exists in the Streamlit review page.
+
+This is UI-level access control for a **local educational prototype**, not a
+production authorization boundary: trusted code can still directly call
+unrestricted ledger utilities, and this system does **not** match a face to a
+real-world identity or provide certified anti-spoofing. Self-registration proves
+only control of a test account. A signed, browser-session-bound workspace pass
+expires after 20 minutes. Neither raw video nor screenshots are stored by the
+verification feature.
+
+Before running:
+
+```powershell
+python -m pip install -r requirements.txt
+python -m pip install -r requirements-verification.txt
+python scripts/download_liveness_model.py
+$env:LOOPLEDGER_REVIEWER_VERIFY_MODE = "camera"
+python -m streamlit run app.py
+```
+
+See [`docs/REVIEWER_VERIFICATION_LOCAL_TEST_CN.md`](docs/REVIEWER_VERIFICATION_LOCAL_TEST_CN.md)
+for the exact two-stage local workflow and limitations.
