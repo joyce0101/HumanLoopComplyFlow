@@ -1,4 +1,4 @@
-"""B's reversible tamper demo, functional acceptance and real compliance UI."""
+"""Reversible audit tamper demo, functional acceptance and compliance UI."""
 
 from contextlib import closing
 import hashlib

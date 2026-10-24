@@ -1,4 +1,4 @@
-"""B-owned integration checks against unchanged team A implementations."""
+"""Data-backend integration checks against model and risk-gate interfaces."""
 
 from dataclasses import asdict
 import importlib.util

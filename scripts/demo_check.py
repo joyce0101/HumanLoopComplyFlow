@@ -1,7 +1,7 @@
-"""Offline B acceptance run: binary reviews, metrics, reports and copy tampering.
+"""Offline data-backend acceptance: binary reviews, metrics and copy tampering.
 
-Uses synthetic predictions, A's real gate and unchanged C/D backend consumers.
-This validates B's persisted workflow, not C's session-only review submission.
+Uses synthetic predictions, the model risk gate and dashboard/report consumers.
+This validates the persisted backend workflow through existing interfaces.
 """
 
 import argparse
@@ -84,13 +84,13 @@ def run_check(output_dir: Path | None = None) -> dict:
         reviewers = metrics.reviewer_stats().set_index("reviewer")
         _require(reviewers.loc["careful_reviewer", "flag"] == "no_alert", "Careful fixture has an unexpected flag")
         _require(reviewers.loc["rubber_stamp", "flag"] == "review_signals", "Rubber-stamp fixture has an unexpected flag")
-        dashboard = runpy.run_path(str(ROOT / "pages/3_Oversight_Dashboard.py"), run_name="b_functional_dashboard")
+        dashboard = runpy.run_path(str(ROOT / "pages/3_Oversight_Dashboard.py"), run_name="functional_dashboard_check")
         snapshot = dashboard["load_backend_snapshot"]()
-        _require(snapshot["system_stats"] == stats, "C dashboard backend counts differ")
+        _require(snapshot["system_stats"] == stats, "Dashboard backend counts differ")
         _require(len(snapshot["durations"]) == 14, "Dashboard must receive one duration per persisted review")
         steps.append("metrics_and_dashboard_backend")
 
-        compliance = runpy.run_path(str(ROOT / "pages/4_Compliance.py"), run_name="b_functional_compliance")
+        compliance = runpy.run_path(str(ROOT / "pages/4_Compliance.py"), run_name="functional_compliance_check")
         _require(compliance["verify_chain_for_source"]("Backend interfaces", None) == (True, None),
                  "Clean chain verification must pass")
         clean_bundle = compliance["build_export_bundle"](
@@ -104,7 +104,7 @@ def run_check(output_dir: Path | None = None) -> dict:
         tamper = make_tampered_copy(clean, damaged, 10)
         with database_scope(damaged):
             _require(compliance["verify_chain_for_source"]("Backend interfaces", None) == (False, 10),
-                     "C chain interface must locate the tampered event")
+                     "Chain verification interface must locate the tampered event")
             damaged_bundle = compliance["build_export_bundle"](
                 "Backend interfaces", {"status": "inconsistent", "intact": False, "broken_id": 10},
             )
@@ -116,12 +116,12 @@ def run_check(output_dir: Path | None = None) -> dict:
         _require(metrics.system_stats() == stats, "Copy tampering must not affect source cases")
         steps.append("return_to_clean_database")
         summary = {
-            "status": "passed", "data_origin": "synthetic applications and predictions; A's real risk gate",
+            "status": "passed", "data_origin": "synthetic applications and predictions; model risk gate",
             "output_dir": str(directory), "clean_database": str(clean), "tampered_database": str(damaged),
             "events": 46, "system_stats": stats,
             "reviewer_metrics": metrics.reviewer_stats().to_dict(orient="records"),
             "tamper": tamper, "passed_steps": steps,
-            "scope": "B persistence and unchanged C/D backend consumers; session-review persistence is not connected",
+            "scope": "Data persistence with dashboard/report interfaces; checks backend consumers rather than browser interaction",
         }
     (directory / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2, allow_nan=False), encoding="utf-8")
     return summary

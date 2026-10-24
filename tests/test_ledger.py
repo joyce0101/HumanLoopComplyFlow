@@ -1,4 +1,4 @@
-"""Offline acceptance tests for B's Sprint 1 deliverable."""
+"""Offline acceptance tests for data persistence and the audit ledger."""
 
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, fields

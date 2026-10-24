@@ -54,7 +54,7 @@ def seed_oversight_demo(*, binary_only: bool = False) -> None:
 
     Each reviewer sees three deliberately wrong AI probes. The careful reviewer
     catches all three; the rubber stamp follows the AI. binary_only uses the
-    real A-owned risk gate and approve/reject operations for functional checks.
+    real model risk gate and approve/reject operations for functional checks.
     """
     for number in range(1, 17):
         automatic = number <= 2
@@ -100,7 +100,7 @@ def main(argv=None) -> None:
     parser.add_argument("--force", action="store_true", help="Clear an existing database before seeding")
     parser.add_argument(
         "--profile", choices=("basic", "oversight", "functional"), default="basic",
-        help="basic: 20 events; oversight: 44 events; functional: binary actions and A's gate",
+        help="basic: 20 events; oversight: 44 events; functional: binary actions and model risk gate",
     )
     args = parser.parse_args(argv)
     path = args.db.resolve()

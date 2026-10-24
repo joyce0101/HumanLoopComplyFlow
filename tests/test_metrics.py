@@ -1,4 +1,4 @@
-"""B-owned checks of persisted metric denominators, flags and read-only behavior."""
+"""Checks of persisted metric denominators, flags and read-only behavior."""
 
 from dataclasses import asdict
 import itertools
