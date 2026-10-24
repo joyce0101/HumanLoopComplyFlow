@@ -33,10 +33,10 @@ class TeamIntegrationTests(unittest.TestCase):
         ledger.log_event("gate", {"case_id": pred.case_id, **asdict(result)})
         return result
 
-    def test_all_team_gold_cases_round_trip_including_modify(self):
+    def test_all_team_gold_cases_round_trip_with_binary_review_actions(self):
         cases = get_gold_cases(6, include_answers=True)
         self.assertEqual(len(cases), 6)
-        self.assertIn("modify", {pred.gold_correct_decision for pred in cases})
+        self.assertEqual({pred.gold_correct_decision for pred in cases}, {"approve", "reject"})
         for pred in cases:
             self.assertTrue(self.store(pred).needs_review)
         self.assertEqual(ledger.get_pending_reviews(), cases)
