@@ -1,5 +1,7 @@
 # 3-minute pitch — LoopLedger (current connected prototype)
 
+For the full live walkthrough, operator cues and judge questions, use [the 12-minute English demo script](DEMO_SCRIPT_EN.md).
+
 ## 0:00–0:30 — Problem
 
 "AI is entering consequential decision workflows. Adding an approval button does not guarantee effective human oversight. Reviewers may follow the model without noticing an error; and even when a review happens, auditors need to know what was done and what evidence was retained."
@@ -12,7 +14,7 @@
 
 **Run Batch:** "We load examples from the German Credit dataset. A trained logistic-regression model outputs an approval or rejection recommendation, confidence and main contributing factors. Risk rules route selected examples for manual review. Both the prediction and the gate result are saved in SQLite."
 
-**Review Queue:** "We open a saved case, inspect the recommendation and factors, then approve, reject or choose Modify / hold with a reason. The review is saved to the database, including its duration. Modify means a hold or request for further evidence, not automatic loan approval."
+**Review Queue:** "We open a saved case, inspect the recommendation and factors, then approve or reject it with a reason. The review is saved to the database, including its duration. The current workflow uses only these two decisions; document requests and resubmission are not implemented."
 
 **Oversight Dashboard:** "Here we see counts from the saved database and reviewers' oversight indicators. For a seeded demonstration, two synthetic reviewer patterns show different detection rates on deliberately wrong AI-control cases. These rates are illustrative and do not establish that a real reviewer is diligent or negligent."
 
