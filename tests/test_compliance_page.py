@@ -15,9 +15,10 @@ PAGE = ROOT / "pages/4_Compliance.py"
 
 
 def open_page():
-    app = AppTest.from_file(str(PAGE), default_timeout=20).run()
+    app = AppTest.from_file(str(PAGE), default_timeout=20)
+    app.run()
     assert not app.exception
-    assert app.radio, "The compliance page needs explicit demo/backend modes."
+    assert not app.radio
     return app
 
 
@@ -56,11 +57,6 @@ def backend_modules(*, intact=True, broken_id=None):
     return ledger, evidence
 
 
-def use_backend(app):
-    app.radio(key="cp_source").set_value("Backend interfaces").run()
-    assert not app.exception
-
-
 def test_initial_state_is_unchecked_with_no_preview_and_disabled_downloads():
     app = open_page()
     assert app.session_state["cp_chain"]["status"] == "unchecked"
@@ -72,11 +68,16 @@ def test_initial_state_is_unchecked_with_no_preview_and_disabled_downloads():
 @pytest.mark.parametrize(
     "scenario,status", [("Pass", "passed"), ("Inconsistency at #17", "inconsistent"), ("Execution error", "error")]
 )
-def test_demo_verification_exposes_all_completed_chain_states(scenario, status):
+def test_backend_verification_exposes_all_completed_chain_states(scenario, status):
     app = open_page()
-    app.selectbox(key="cp_demo_chain").select(scenario).run()
+    ledger, _ = backend_modules(intact=scenario == "Pass", broken_id=17 if scenario != "Pass" else None)
+    if scenario == "Execution error":
+        def fail():
+            raise RuntimeError("Database unavailable")
+        ledger.verify_chain = fail
     assert app.session_state["cp_chain"]["status"] == "unchecked"
-    verify(app)
+    with patch.dict("sys.modules", {"loopledger.ledger": ledger}):
+        verify(app)
     assert app.session_state["cp_chain"]["status"] == status
     assert download_disabled(app) == [True, True]
     assert button(app, "Generate report").disabled == (status == "error")
@@ -89,7 +90,7 @@ def test_generated_markdown_preview_matches_download_bundle_and_json():
     bundle = app.session_state["cp_export"]
     data = json.loads(bundle["json_text"])
     assert data["integrity"]["chain_intact"] is True
-    assert "UI demo" in data["data_origin"]
+    assert "Local SQLite ledger snapshot" in data["data_origin"]
     assert data["report_id"] in bundle["markdown"]
     # Streamlit trims surrounding whitespace before rendering Markdown.
     assert any(item.value == bundle["markdown"].strip() for item in app.markdown)
@@ -103,9 +104,11 @@ def test_generated_markdown_preview_matches_download_bundle_and_json():
 
 def test_inconsistent_chain_remains_exportable_as_failure_evidence():
     app = open_page()
-    app.selectbox(key="cp_demo_chain").select("Inconsistency at #17").run()
-    verify(app)
-    generate(app)
+    ledger, evidence = backend_modules(intact=False, broken_id=17)
+    evidence.build_report = lambda: "# Report\n\n**Report ID:** `backend-001`\n\nFAIL\n"
+    with patch.dict("sys.modules", {"loopledger.ledger": ledger, "loopledger.evidence": evidence}):
+        verify(app)
+        generate(app)
     bundle = app.session_state["cp_export"]
     data = json.loads(bundle["json_text"])
     assert data["integrity"] == {"chain_intact": False, "first_broken_event_id": 17}
@@ -118,19 +121,18 @@ def test_generation_failure_removes_old_preview_and_disables_both_downloads():
     verify(app)
     generate(app)
     old_markdown = app.session_state["cp_export"]["markdown"]
-    app.checkbox(key="cp_demo_report_error").check().run()
-    generate(app)
+    with patch("loopledger.evidence.build_report", side_effect=RuntimeError("Report failed")):
+        generate(app)
     assert app.error
     assert not app.session_state.get("cp_export")
     assert download_disabled(app) == [True, True]
     assert not any(item.value == old_markdown for item in app.markdown)
-    app.checkbox(key="cp_demo_report_error").uncheck().run()
     generate(app)
     assert not app.error
     assert download_disabled(app) == [False, False]
 
 
-def test_reverification_and_context_changes_invalidate_previous_exports():
+def test_reverification_failure_invalidates_previous_exports():
     app = open_page()
     verify(app)
     generate(app)
@@ -138,19 +140,19 @@ def test_reverification_and_context_changes_invalidate_previous_exports():
     assert not app.session_state.get("cp_export")
     assert download_disabled(app) == [True, True]
     generate(app)
-    app.selectbox(key="cp_demo_chain").select("Execution error").run()
-    assert app.session_state["cp_chain"]["status"] == "unchecked"
-    assert download_disabled(app) == [True, True]
-    verify(app)
+    ledger, _ = backend_modules()
+    def fail():
+        raise RuntimeError("Database unavailable")
+    ledger.verify_chain = fail
+    with patch.dict("sys.modules", {"loopledger.ledger": ledger}):
+        verify(app)
     assert app.session_state["cp_chain"]["status"] == "error"
-    use_backend(app)
-    assert app.session_state["cp_chain"]["status"] == "unchecked"
     assert download_disabled(app) == [True, True]
+    assert button(app, "Generate report").disabled
 
 
 def test_missing_backend_verification_is_a_visible_error_not_a_demo_pass():
     app = open_page()
-    use_backend(app)
     with patch.dict("sys.modules", {"loopledger.ledger": types.ModuleType("loopledger.ledger")}):
         verify(app)
     assert app.error
@@ -160,7 +162,6 @@ def test_missing_backend_verification_is_a_visible_error_not_a_demo_pass():
 
 def test_backend_exports_use_d_interfaces_and_do_not_regenerate_on_rerun():
     app = open_page()
-    use_backend(app)
     ledger, evidence = backend_modules()
     with patch.dict("sys.modules", {"loopledger.ledger": ledger, "loopledger.evidence": evidence}):
         verify(app)
@@ -168,8 +169,7 @@ def test_backend_exports_use_d_interfaces_and_do_not_regenerate_on_rerun():
     assert app.session_state["cp_export"]["markdown"].startswith("# Backend evidence")
     assert json.loads(app.session_state["cp_export"]["json_text"])["report_id"] == "backend-001"
     assert download_disabled(app) == [False, False]
-    # The real backend is incomplete; an ordinary rerun must still keep the
-    # already prepared artifacts without attempting another backend call.
+    # An ordinary rerun keeps prepared artifacts without regenerating them.
     app.run()
     assert not app.exception
     assert not app.error
@@ -179,7 +179,6 @@ def test_backend_exports_use_d_interfaces_and_do_not_regenerate_on_rerun():
 @pytest.mark.parametrize("bad_result", [("True", None), (True, 17), (False, None), (False, -1)])
 def test_malformed_backend_check_results_are_execution_errors(bad_result):
     app = open_page()
-    use_backend(app)
     ledger, _ = backend_modules()
     ledger.verify_chain = lambda: bad_result
     with patch.dict("sys.modules", {"loopledger.ledger": ledger}):
@@ -192,7 +191,6 @@ def test_malformed_backend_check_results_are_execution_errors(bad_result):
 @pytest.mark.parametrize("failure", ["empty_markdown", "invalid_json", "report_id_changed", "integrity_changed"])
 def test_invalid_or_mismatched_backend_exports_never_enable_partial_downloads(failure):
     app = open_page()
-    use_backend(app)
     ledger, evidence = backend_modules()
     if failure == "empty_markdown":
         evidence.build_report = lambda: "   "

@@ -257,18 +257,12 @@ def main() -> None:
     st.set_page_config(page_title="Oversight Dashboard | LoopLedger", page_icon="📊", layout="wide")
     st.title("Oversight Dashboard")
     st.write("Inspect review activity, AI overrides, control checks and time spent reviewing.")
-    source = st.radio("Data source", ["Session demo", "Backend metrics"], key="od_source", horizontal=True)
     st.button("Refresh metrics", key="od_refresh")
-    if source == "Session demo":
-        st.warning(
-            "Session demo / 会话演示数据 — indicators use reviews submitted in this app session. "
-            "Database records and model previews are excluded. No reviews are generated here."
-        )
-        st.caption("Counts cover available mock-session records. Automatic decisions come from retained mock batch history.")
-    else:
-        st.info("Backend mode reads the team's metrics interfaces; session-demo reviews are excluded.")
     try:
-        snapshot = build_session_snapshot(st.session_state) if source == "Session demo" else load_backend_snapshot()
+        ledger = importlib.import_module("loopledger.ledger")
+        if callable(getattr(ledger, "init_db", None)):
+            ledger.init_db()
+        snapshot = load_backend_snapshot()
     except Exception as error:
         st.error(f"Could not load oversight metrics: {error}")
         return
@@ -276,7 +270,7 @@ def main() -> None:
         st.warning(warning)
     stats = snapshot["system_stats"]
     labels = {
-        "total": "Known applications" if source == "Session demo" else "Total applications",
+        "total": "Total applications",
         "auto_approved": "Auto-approved", "auto_rejected": "Auto-rejected",
         "sent_to_review": "Sent for review", "reviewed": "Reviewed", "pending": "Pending",
     }
@@ -288,17 +282,6 @@ def main() -> None:
         st.info("No completed reviews yet. Submit an application review in Review Queue, then return here.")
         return
     render_reviewers(frame, snapshot["durations"])
-    if source == "Session demo":
-        with st.expander("How these demo indicators are calculated"):
-            st.markdown(
-                "- **Override rate:** actions differing from the original AI recommendation; modify counts as an override.\n"
-                "- **Gold catch rate:** correct actions on reviewed, deliberately inverted binary controls; blank when none are available.\n"
-                "- **Short reasons:** stripped reasons under 12 characters; a length proxy, not a judgment of their substance.\n"
-                "- **Insufficient data:** fewer than 5 reviews, incomplete timings, or missing AI comparisons.\n"
-                "- **Red signals:** mean under 5s, at least 80% short reasons, or catch rate below 50% across at least 3 gold checks.\n"
-                "- **Yellow signals:** mean under 15s, at least 40% short reasons, zero overrides across at least 5 comparisons, or catch rate below 80% across at least 3 gold checks.\n"
-                "- Otherwise: **no heuristic alert**. These are illustrative monitoring rules, not proof of effective oversight."
-            )
 
 
 if __name__ == "__main__":

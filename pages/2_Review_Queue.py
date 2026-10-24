@@ -1,11 +1,8 @@
-"""Mock review queue; run from the repository root with Streamlit.
-
-The queue and completed reviews live only in this browser session. Replace
-the mock data source and submission sink with ledger interfaces at integration.
-"""
+"""Persisted review queue using the ledger's read and submission interfaces."""
 
 from dataclasses import asdict
 import json
+import hashlib
 import time
 
 import plotly.graph_objects as go
@@ -69,13 +66,31 @@ def submit_mock_review(action: ReviewAction) -> None:
     print("MOCK REVIEW:", json.dumps(asdict(action), ensure_ascii=False), flush=True)
 
 
-def render_prediction(pred: Prediction) -> None:
+def public_case_id(case_id: str) -> str:
+    """Use the same opaque display identifier for every persisted application."""
+    return "APP-" + hashlib.sha256(case_id.encode()).hexdigest()[:12]
+
+
+def render_prediction(pred: Prediction, *, database: bool = False) -> None:
     """Render only public fields; never pass a whole Prediction to the UI."""
-    st.subheader(f"Application {pred.case_id}")
+    st.subheader(f"Application {public_case_id(pred.case_id) if database else pred.case_id}")
     columns = st.columns(3)
     for column, feature in zip(columns, FEATURE_LABELS):
-        column.metric(FEATURE_LABELS[feature], f"{pred.features[feature]:,}")
-    st.caption("Loan amounts use demo units; no currency has been assigned.")
+        value = pred.features.get(feature)
+        display = "Not provided" if value is None else (f"{value:,}" if isinstance(value, (int, float)) else str(value))
+        column.metric(FEATURE_LABELS[feature], display)
+    st.caption("Loan amounts use dataset/demo units; no currency has been assigned.")
+    if database:
+        details = {
+            key: pred.features[key] for key in (
+                "identity_verified", "extra_proof", "authorized_exception", "document_amount",
+                "fraud_confirmed", "policy_checks_passed", "scenario",
+            ) if key in pred.features
+        }
+        if details:
+            st.markdown("#### Application evidence")
+            for key, value in details.items():
+                st.text(f"{key.replace('_', ' ').capitalize()}: {value}")
 
     recommendation, explanation = st.columns([1, 2])
     with recommendation:
@@ -89,6 +104,9 @@ def render_prediction(pred: Prediction) -> None:
 
     with explanation:
         st.markdown("#### Top contributing factors")
+        if not pred.top_factors:
+            st.info("No feature contributions were provided for this application.")
+            return
         names, values = zip(*pred.top_factors)
         figure = go.Figure(
             go.Bar(
@@ -109,14 +127,16 @@ def render_prediction(pred: Prediction) -> None:
         )
         st.plotly_chart(figure, width="stretch", key="rq_factors")
         st.caption(
-            "Illustrative values, not measured SHAP output. "
-            "Positive → reject; negative → approve."
+            ("Stored contributions; the local logistic model uses log-odds contributions, not SHAP. "
+             if database else "Illustrative values, not measured SHAP output. ")
+            + "Positive → reject; negative → approve."
         )
 
 
-def render_review_form(pred: Prediction) -> None:
-    """Validate first, then submit and transition the mock queue once."""
+def render_review_form(pred: Prediction, *, database: bool = False) -> None:
+    """Validate then call the selected sink; failed writes preserve the draft."""
     state = st.session_state
+    display_id = public_case_id(pred.case_id) if database else pred.case_id
     st.markdown("#### Your decision")
     elapsed = max(0.0, time.perf_counter() - state["rq_started_at"])
     st.caption(
@@ -127,20 +147,26 @@ def render_review_form(pred: Prediction) -> None:
         reviewer = st.text_input("Reviewer", key="rq_reviewer", placeholder="e.g. alice")
         reason = st.text_area(
             "Reason (required)",
-            key=f"rq_reason_{pred.case_id}",
+            key=f"rq_reason_{display_id}",
             placeholder="Explain your decision after reviewing the application.",
         )
         approve_column, reject_column, modify_column = st.columns(3)
         approve = approve_column.form_submit_button(
-            "Approve application", key=f"rq_approve_{pred.case_id}", type="primary"
+            "Approve application", key=f"rq_approve_{display_id}", type="primary"
         )
         reject = reject_column.form_submit_button(
-            "Reject application", key=f"rq_reject_{pred.case_id}"
+            "Reject application", key=f"rq_reject_{display_id}"
         )
-        modify_column.form_submit_button("Modify terms", disabled=True)
-        st.caption("Modify terms is unavailable in this demo.")
+        modify = modify_column.form_submit_button(
+            "Modify / hold" if database else "Modify terms", disabled=not database,
+        )
+        st.caption(
+            "Modify / hold records an adjustment or evidence request and completes this review task. "
+            "It does not edit loan terms or approve the loan."
+            if database else "Modify terms is unavailable in this demo."
+        )
 
-    if not (approve or reject):
+    if not (approve or reject or modify):
         return
     if not reviewer.strip():
         st.error("Enter the reviewer's name before submitting.")
@@ -148,32 +174,37 @@ def render_review_form(pred: Prediction) -> None:
     if not reason.strip():
         st.error("Enter a reason before submitting.")
         return
-    if any(review.case_id == pred.case_id for review in state["rq_submitted_reviews"]):
+    if not database and any(review.case_id == pred.case_id for review in state["rq_submitted_reviews"]):
         st.error("This application has already been reviewed.")
         return
 
     action = ReviewAction(
         case_id=pred.case_id,
         reviewer=reviewer.strip(),
-        action="approve" if approve else "reject",
+        action="approve" if approve else ("reject" if reject else "modify"),
         reason=reason.strip(),
         seconds_spent=max(0.0, time.perf_counter() - state["rq_started_at"]),
     )
     try:
-        submit_mock_review(action)
+        if database:
+            from loopledger import ledger
+            ledger.submit_review(action)
+        else:
+            submit_mock_review(action)
     except Exception:
         # A failed sink must not discard input or advance the selected case.
         st.error("Submission failed. Your input is preserved; please try again.")
         return
 
-    state.setdefault("rq_reviewed_predictions", {})[pred.case_id] = pred
-    state["rq_submitted_reviews"].append(action)
-    state["rq_pending_reviews"] = [
-        case for case in state["rq_pending_reviews"] if case.case_id != pred.case_id
-    ]
+    if not database:
+        state.setdefault("rq_reviewed_predictions", {})[pred.case_id] = pred
+        state["rq_submitted_reviews"].append(action)
+        state["rq_pending_reviews"] = [
+            case for case in state["rq_pending_reviews"] if case.case_id != pred.case_id
+        ]
     state["rq_success_message"] = (
-        f"Mock review saved for {pred.case_id}: "
-        f"{'approved' if action.action == 'approve' else 'rejected'} "
+        f"{'Database' if database else 'Mock'} review saved for {display_id}: "
+        f"{action.action} "
         f"by {action.reviewer} ({action.seconds_spent:.1f}s)."
     )
     st.rerun()
@@ -182,33 +213,30 @@ def render_review_form(pred: Prediction) -> None:
 def main() -> None:
     st.set_page_config(page_title="Review Queue | LoopLedger", page_icon="📋", layout="wide")
     state = st.session_state
-    if "rq_pending_reviews" not in state:
-        state["rq_pending_reviews"] = make_mock_pending_reviews()
-    if "rq_submitted_reviews" not in state:
-        state["rq_submitted_reviews"] = []
-
     st.title("Review Queue")
     st.write("Review the application and AI recommendation, then record your own decision.")
-    st.warning(
-        "Mock data mode / 模拟数据模式 — reviews are kept only in this browser "
-        "session and printed to the terminal. No database records are written. "
-        "A browser reload may reset this demo."
-    )
+    source = "Database records"
+    st.button("Refresh queue", key="rq_refresh")
+    try:
+        from loopledger import ledger
+        ledger.init_db()
+        pending = ledger.get_pending_reviews()
+    except Exception:
+        st.error("Could not load the database review queue. Check the database connection and refresh.")
+        return
     if message := state.pop("rq_success_message", None):
         st.success(message)
 
-    pending = state["rq_pending_reviews"]
-    pending_column, completed_column = st.columns(2)
-    pending_column.metric("Pending applications", len(pending))
-    completed_column.metric("Reviewed this session", len(state["rq_submitted_reviews"]))
+    st.metric("Pending applications", len(pending))
     if not pending:
         state.pop("rq_active_case_id", None)
         state.pop("rq_started_at", None)
-        st.info("No pending applications. All mock cases have been reviewed.")
+        st.info("No pending applications. Run a batch or refresh after new applications are saved.")
         return
 
     queue_column, detail_column = st.columns([1, 3])
-    case_ids = [case.case_id for case in pending]
+    cases = {public_case_id(case.case_id): case for case in pending}
+    case_ids = list(cases)
     # Repair stale selection before constructing its widget, never after it.
     if state.get("rq_case_selector") not in case_ids:
         state["rq_case_selector"] = case_ids[0]
@@ -217,13 +245,14 @@ def main() -> None:
         selected_id = st.selectbox("Choose an application", case_ids, key="rq_case_selector")
         st.caption("Approve or reject the application itself, regardless of the AI's suggestion.")
 
-    if state.get("rq_active_case_id") != selected_id:
+    if state.get("rq_active_case_id") != selected_id or state.get("rq_active_source") != source:
         state["rq_active_case_id"] = selected_id
+        state["rq_active_source"] = source
         state["rq_started_at"] = time.perf_counter()
-    selected_case = next(case for case in pending if case.case_id == selected_id)
+    selected_case = cases[selected_id]
     with detail_column:
-        render_prediction(selected_case)
-        render_review_form(selected_case)
+        render_prediction(selected_case, database=True)
+        render_review_form(selected_case, database=True)
 
 
 if __name__ == "__main__":

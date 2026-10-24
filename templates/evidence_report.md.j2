@@ -16,7 +16,8 @@ This document records observed demo signals and limitations. It does **not** dem
 | Metric | Count |
 |---|---:|
 | Total cases | {{ system_stats.total }} |
-| Automated decisions (status: auto) | {{ system_stats.auto_approved }} |
+| Automatically approved | {{ system_stats.auto_approved }} |
+| Automatically rejected | {{ system_stats.auto_rejected | default('N/A') }} |
 | Sent to human review | {{ system_stats.sent_to_review }} |
 | Completed human reviews | {{ system_stats.reviewed }} |
 | Pending human reviews | {{ system_stats.pending }} |
@@ -74,7 +75,7 @@ This mapping shows **potentially relevant supporting evidence**. It is not a cla
 
 ## 7. Follow-up Actions
 
-1. Replace mock A, B, C implementations with the team's real components after integration tests pass.
+1. Validate the connected model, storage, review and reporting workflow against representative end-to-end cases.
 2. Validate the risk gate, oversight benchmarks, gold-control construction, and false-positive rates on representative data.
 3. Confirm intended-use classification and applicable legal duties with qualified compliance counsel.
 4. Establish access controls, independent log anchoring, retention, and evidence governance before any real deployment.

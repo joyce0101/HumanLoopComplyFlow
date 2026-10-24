@@ -26,7 +26,7 @@ def persisted_demo(tmp_path, monkeypatch):
 def test_real_backend_dashboard_renders_persisted_rates_and_flags(persisted_demo):
     before = persisted_demo.read_bytes()
     app = AppTest.from_file(str(ROOT / "pages/3_Oversight_Dashboard.py"), default_timeout=30).run()
-    app.radio(key="od_source").set_value("Backend metrics").run()
+    app.run()
     assert not app.exception
     assert not app.error
     counts = {item.label: item.value for item in app.metric}
@@ -50,7 +50,7 @@ def test_dashboard_reports_actual_missing_dependency_without_session_fallback(pe
 
     app = AppTest.from_file(str(ROOT / "pages/3_Oversight_Dashboard.py"), default_timeout=30).run()
     monkeypatch.setitem(sys.modules, "loopledger.metrics", types.ModuleType("loopledger.metrics"))
-    app.radio(key="od_source").set_value("Backend metrics").run()
+    app.run()
     assert not app.exception
     assert app.error
     assert "not available" in app.error[0].value

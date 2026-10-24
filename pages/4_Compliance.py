@@ -1,4 +1,4 @@
-"""Compliance UI with explicit demo fixtures and deferred B/D interface calls.
+"""Compliance UI connected to B's verification and D's report interfaces.
 
 No database writes, report generation, or verification occur on ordinary page
 loads. Exports are kept as a complete bundle and invalidated before retries.
@@ -43,6 +43,8 @@ def verify_chain_for_source(source: str, scenario: str | None) -> tuple[bool, in
         ledger = importlib.import_module("loopledger.ledger")
         if not callable(getattr(ledger, "verify_chain", None)):
             raise RuntimeError("B's verify_chain() interface is not available yet.")
+        if callable(getattr(ledger, "init_db", None)):
+            ledger.init_db()
         result = ledger.verify_chain()
     return validate_chain_result(result)
 
@@ -131,21 +133,11 @@ def main() -> None:
     st.set_page_config(page_title="Compliance & Evidence | LoopLedger", page_icon="📄", layout="wide")
     st.title("Compliance & Evidence")
     st.write("Check audit-chain consistency, preview a report, and download its evidence artifacts.")
-    source = st.radio("Data source", ["UI demo", "Backend interfaces"], key="cp_source", horizontal=True)
-    if source == "UI demo":
-        st.warning(
-            "UI demo / 界面演示 — verification responses and report content are synthetic. "
-            "No real database is checked or modified, and session approvals are not included."
-        )
-    else:
-        st.info("Backend mode calls B's chain verification and D's report interfaces. No fallback to demo results.")
+    source = "Backend interfaces"
+    st.caption("Verification covers recorded audit events. An empty event chain can pass; it does not validate application rows or prove historical completeness.")
 
     st.subheader("1. Chain verification")
     scenario = None
-    if source == "UI demo":
-        scenario = st.selectbox(
-            "Demo chain response", ["Pass", "Inconsistency at #17", "Execution error"], key="cp_demo_chain"
-        )
     state = st.session_state
     context = (source, scenario)
     if state.get("cp_context") != context:
@@ -171,16 +163,13 @@ def main() -> None:
     render_chain_status(state["cp_chain"], source)
 
     st.subheader("2. Markdown report preview")
-    simulate_error = False
-    if source == "UI demo":
-        simulate_error = st.checkbox("Simulate report-generation failure", key="cp_demo_report_error")
     can_generate = state["cp_chain"]["status"] in ("passed", "inconsistent")
     if st.button("Generate report", key="cp_generate", disabled=not can_generate) and can_generate:
         state["cp_export"] = None
         state["cp_report_error"] = None
         try:
             with st.spinner("Generating Markdown and JSON evidence…"):
-                state["cp_export"] = build_export_bundle(source, state["cp_chain"], simulate_error)
+                state["cp_export"] = build_export_bundle(source, state["cp_chain"])
         except StaleIntegrityError as error:
             state["cp_chain"] = unchecked_chain()
             state["cp_report_error"] = str(error)

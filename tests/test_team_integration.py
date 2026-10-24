@@ -91,7 +91,7 @@ class TeamIntegrationTests(unittest.TestCase):
         model_path = self.directory / "integration-model.joblib"
         metrics = train(model_path=model_path)
         self.assertEqual((metrics["train_rows"], metrics["test_rows"]), (750, 250))
-        pred = predict(dict(EXAMPLE_APPLICATION), model_path=model_path)
+        pred = predict(dict(EXAMPLE_APPLICATION), case_id=EXAMPLE_APPLICATION["case_id"], model_path=model_path)
         self.assertIsInstance(pred, Prediction)
         self.assertTrue(self.store(pred).needs_review)
         self.assertEqual(ledger.get_pending_reviews(), [pred])

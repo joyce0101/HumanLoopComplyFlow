@@ -1,9 +1,6 @@
-"""Batch UI: shared-session mock routing and an explicit real-model preview.
+"""Batch UI using A's predictions/gate and B's event persistence contracts."""
 
-No SQL belongs in this page. B's batch persistence contract is still pending.
-"""
-
-from dataclasses import replace
+from dataclasses import asdict, replace
 import importlib
 import math
 from pathlib import Path
@@ -27,10 +24,12 @@ def _new_batch(n: int, batch_id: str, mode: str) -> dict:
         "requested": n,
         "rows": [],
         "pending_reviews": [],
+        "decisions": [],
     }
 
 
 def _record_prediction(result: dict, pred: Prediction, gate: GateResult) -> None:
+    result["decisions"].append((pred, gate))
     if gate.needs_review:
         routing = "Manual review"
         result["pending_reviews"].append(pred)
@@ -92,35 +91,27 @@ def run_model_batch(
     _validate_batch_size(n)
     model = importlib.import_module("loopledger.model")
     gate = importlib.import_module("loopledger.gate")
-    from sklearn.model_selection import train_test_split
 
     artifact = Path(model_path) if model_path is not None else Path(model.MODEL_FILE)
     if not artifact.is_file():
         raise FileNotFoundError(
             "No trained model is available. Run `python -m loopledger.model --train` "
-            "before starting a model preview."
+            "before running a batch."
         )
-    features, labels = model.load_data()
-    # Match the partition in A's train() so preview samples are held-out rows.
-    _, holdout, _, _ = train_test_split(
-        features, labels, test_size=0.25, random_state=42, stratify=labels
-    )
-    if n > len(holdout):
-        raise ValueError(f"Only {len(holdout)} applications are available in the holdout set.")
-
     result = _new_batch(n, batch_id, "Model preview")
-    samples = holdout.sample(n=n, random_state=42).to_dict(orient="records")
+    samples = model.sample_cases(n)
     for index, features in enumerate(samples):
         case_id = f"{batch_id}-{index + 1:04d}"
         application = {
             **features,
-            "case_id": case_id,
             "identity_verified": identity_verified,
         }
         try:
-            raw_prediction = model.predict(application, model_path=artifact)
+            raw_prediction = model.predict(application, case_id=case_id, model_path=artifact)
             if not isinstance(raw_prediction, Prediction):
                 raise ValueError("Model must return a shared Prediction object.")
+            if raw_prediction.case_id != case_id:
+                raise ValueError("Model returned a different application ID.")
             confidence = float(raw_prediction.confidence)
             decision = raw_prediction.decision
             if decision not in ("approve", "reject") or not math.isfinite(confidence):
@@ -129,12 +120,12 @@ def run_model_batch(
                 raise ValueError("Model confidence must be between 0 and 1.")
             factors = [
                 (name, float(value))
-                for name, value in raw_prediction.top_factors[:3]
+                for name, value in raw_prediction.top_factors
             ]
             if any(not math.isfinite(value) for _, value in factors):
                 raise ValueError("Model returned a nonfinite feature contribution.")
             pred = replace(raw_prediction, confidence=confidence, top_factors=factors)
-            raw_gate = gate.evaluate_risk(application, raw_prediction)
+            raw_gate = gate.check(raw_prediction)
             if not isinstance(raw_gate, GateResult):
                 raise ValueError("Risk gate must return a shared GateResult object.")
             needs_review = raw_gate.needs_review
@@ -158,6 +149,40 @@ def run_model_batch(
                 "Reasons": "Not routed",
                 "Error": f"{type(error).__name__}: {error}",
             })
+    return result
+
+
+def persist_model_batch(result: dict) -> dict:
+    """Save predictions then routing; a missing gate leaves a pending case.
+
+    The two ledger calls are separate transactions. Never retry a prediction
+    automatically after a gate failure or claim that an automatic route saved.
+    """
+    ledger = importlib.import_module("loopledger.ledger")
+    ledger.init_db()
+    result["mode"] = "Model + database"
+    result["pending_reviews"] = []
+    rows = {row["Case"]: row for row in result["rows"]}
+    for pred, gate in result["decisions"]:
+        row = rows[pred.case_id]
+        try:
+            ledger.log_event("prediction", asdict(pred))
+        except Exception as error:
+            row.update({"Routing": "Failed", "Persistence": "Not saved", "Error": str(error)})
+            continue
+        try:
+            ledger.log_event("gate", {"case_id": pred.case_id, **asdict(gate)})
+        except Exception as error:
+            row.update({
+                "Routing": "Manual review", "Persistence": "Prediction saved; gate failed",
+                "Reasons": "Routing was not saved. Application remains pending for manual review.",
+                "Error": str(error),
+            })
+            result["pending_reviews"].append(pred)
+        else:
+            row["Persistence"] = "Saved"
+            if gate.needs_review:
+                result["pending_reviews"].append(pred)
     return result
 
 
@@ -187,6 +212,14 @@ def render_batch(result: dict) -> None:
             "in this app session. Existing pending and completed reviews were preserved. "
             "Opening another browser tab starts a separate session."
         )
+    elif result["mode"] == "Model + database":
+        st.info(
+            "Saved applications are available in Review Queue, "
+            "including after a browser refresh. Automatic routing records eligibility; "
+            "this prototype does not execute loan transactions."
+        )
+        if any(row.get("Error") and row["Routing"] != "Failed" for row in rows):
+            st.warning("Some routing events could not be saved. These applications remain pending; inspect the Error column.")
     else:
         st.info(
             "Preview only: routing shows eligibility, not executed loan decisions. "
@@ -200,51 +233,32 @@ def main() -> None:
     state = st.session_state
     st.title("Run Batch")
     st.write("Process a batch of demo loan applications and inspect which decisions need review.")
-    mode = st.radio("Data source", ["Mock demo", "Model preview"], key="rb_mode", horizontal=True)
-    if mode == "Mock demo":
-        st.warning(
-            "Mock data mode / 模拟数据模式 — applications, recommendations and "
-            "contributions are synthetic. Results stay in this browser session; "
-            "no database records are written."
-        )
-        st.caption("Mock review rules: confidence < 0.70 or loan amount > 15,000 demo units.")
-    else:
-        st.warning(
-            "Model preview only — uses the local German Credit dataset and an "
-            "already trained model. Persistence and the real review queue are not connected."
-        )
-        st.caption(
-            "The dataset contains no identity-verification evidence. Without the "
-            "explicit demo assumption below, the risk gate requires manual review. "
-            "Loan amounts use dataset units."
-        )
+    st.caption("Applications and routing results are saved to the database.")
+    st.caption(
+        "The dataset contains no identity-verification evidence. Without the "
+        "explicit demo assumption below, the risk gate requires manual review. "
+        "Loan amounts use dataset units."
+    )
+    if state.get("rb_last_batch", {}).get("mode") not in (None, "Model + database"):
+        state.pop("rb_last_batch", None)
+        state.pop("rb_last_error", None)
 
     with st.form("rb_run_form"):
         n = st.slider("Number of applications", 1, 200, 50, key="rb_batch_size")
-        identity_verified = False
-        if mode == "Model preview":
-            identity_verified = st.checkbox(
-                "Assume identity verified for this demo preview",
-                value=False,
-                key="rb_demo_identity_verified",
-            )
+        identity_verified = st.checkbox(
+            "Assume identity verified for this dataset demo",
+            value=False,
+            key="rb_demo_identity_verified",
+        )
         run = st.form_submit_button("Run batch", type="primary")
 
     if run:
         batch_id = f"B-{uuid4().hex[:12]}"
         try:
             with st.spinner("Processing applications…"):
-                if mode == "Mock demo":
-                    result = run_mock_batch(n, batch_id)
-                else:
-                    result = run_model_batch(n, batch_id, identity_verified=identity_verified)
-            if mode == "Mock demo":
-                state["rq_pending_reviews"] = (
-                    list(state.get("rq_pending_reviews", [])) + result["pending_reviews"]
+                result = persist_model_batch(
+                    run_model_batch(n, batch_id, identity_verified=identity_verified)
                 )
-                if "rq_submitted_reviews" not in state:
-                    state["rq_submitted_reviews"] = []
-                state.setdefault("rb_mock_batches", []).append(result)
             state["rb_last_batch"] = result
             state.pop("rb_last_error", None)
         except Exception as error:
