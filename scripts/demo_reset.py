@@ -49,11 +49,12 @@ def seed_demo() -> None:
         ))
 
 
-def seed_oversight_demo() -> None:
+def seed_oversight_demo(*, binary_only: bool = False) -> None:
     """16 synthetic cases, 12 reviews, 44 events; six reviews per reviewer.
 
     Each reviewer sees three deliberately wrong AI probes. The careful reviewer
-    catches all three (including modify); the rubber stamp follows the AI.
+    catches all three; the rubber stamp follows the AI. binary_only uses the
+    real A-owned risk gate and approve/reject operations for functional checks.
     """
     for number in range(1, 17):
         automatic = number <= 2
@@ -61,7 +62,8 @@ def seed_oversight_demo() -> None:
         careful = 3 <= number <= 8
         index = (number - 3) % 6
         is_gold = completed and index < 3
-        correct = ("modify", "reject", "approve")[index] if is_gold else None
+        answers = ("reject" if binary_only else "modify", "reject", "approve")
+        correct = answers[index] if is_gold else None
         decision = "reject" if (correct == "approve" or number == 2) else "approve"
         pred = Prediction(
             case_id=f"oversight-{number:03d}",
@@ -72,8 +74,14 @@ def seed_oversight_demo() -> None:
             is_gold=is_gold,
             gold_correct_decision=correct,
         )
+        if binary_only:
+            pred.features.update(case_id=pred.case_id, identity_verified=True)
         ledger.log_event("prediction", asdict(pred))
-        gate = GateResult(not automatic, ["demo_manual_review"] if not automatic else [])
+        if binary_only:
+            from loopledger.gate import evaluate_risk
+            gate = evaluate_risk(pred.features, pred)
+        else:
+            gate = GateResult(not automatic, ["demo_manual_review"] if not automatic else [])
         ledger.log_event("gate", {"case_id": pred.case_id, **asdict(gate)})
         if completed:
             ledger.submit_review(ReviewAction(
@@ -91,8 +99,8 @@ def main(argv=None) -> None:
     parser.add_argument("--empty", action="store_true", help="Create empty tables without demo fixtures")
     parser.add_argument("--force", action="store_true", help="Clear an existing database before seeding")
     parser.add_argument(
-        "--profile", choices=("basic", "oversight"), default="basic",
-        help="basic: 20-event ledger sample; oversight: 44-event reviewer comparison",
+        "--profile", choices=("basic", "oversight", "functional"), default="basic",
+        help="basic: 20 events; oversight: 44 events; functional: binary actions and A's gate",
     )
     args = parser.parse_args(argv)
     path = args.db.resolve()
@@ -106,7 +114,10 @@ def main(argv=None) -> None:
         connection.execute("DELETE FROM events")
         connection.execute("DELETE FROM sqlite_sequence WHERE name = 'events'")
     if not args.empty:
-        (seed_oversight_demo if args.profile == "oversight" else seed_demo)()
+        if args.profile == "basic":
+            seed_demo()
+        else:
+            seed_oversight_demo(binary_only=args.profile == "functional")
     intact, broken_id = ledger.verify_chain()
     if not intact:
         raise RuntimeError(f"Demo chain is broken at #{broken_id}")

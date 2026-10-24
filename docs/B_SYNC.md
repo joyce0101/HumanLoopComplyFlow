@@ -1,5 +1,7 @@
 # B 组与团队版本同步事项
 
+第三步功能验收已完成，已同步 A 的 `ebcdf21`。当前优先运行批准/拒绝闭环，modify 冲突暂缓。最新数据库说明、可运行命令和需要队友修改的文件以 [B_DEMO.md](./B_DEMO.md) 为准。
+
 第二步指标已实现，现有 C/D 的真实后台调用已验证。最新接口、口头同步事项、队友应读文件和旧测试调整说明以 [B_METRICS.md](./B_METRICS.md) 为准。
 
 本次以团队 `main` 的 `0b41de2`（`Implement Streamlit demo workflows and frontend tests`）为基线，直接在本地 `main` 快进同步 26 个提交，其中包括 A 的 `7f05b61` 数据结构对齐和 C 的最新页面及测试。没有新建分支，没有改动 A/C/D 的修订文件；下列差异仅作交接说明。
@@ -16,14 +18,14 @@
 
 | 优先级 / 对接方 | PLAN / 旧约定 | 团队 main 当前实现 | 调用方式或需要对齐的事项 |
 | --- | --- | --- | --- |
-| P0 · A / C | `predict(features, case_id)` | `predict(application, model_path=MODEL_FILE)` | `application` 必须含 `case_id`；第二位置参数是模型路径，不能传案例 ID。返回值已是共享 `Prediction`。C 应按当前实现调用，或由 A 后续补兼容层。 |
-| P0 · A / C | `gate.check(pred)` | `evaluate_risk(application, prediction)` | 使用 `evaluate_risk(pred.features, pred)`，确保 application 的 `case_id` 与 pred 一致。金标准 features 不含 case_id，调用时需补入。不要调用不存在的 `check()`。 |
-| P0 · A / C | `sample_cases(n)` | A 未提供，C 已自行复现 75%/25% 划分并从 holdout 抽样 | C 当前模型预览可用，但没有持久化。后续统一采样入口时需保持训练/测试划分一致；本次未改两组代码。 |
-| P0 · A / B / C | `make_gold_cases(n)`，二元正确答案 | `get_gold_cases(n, include_answers=False)`，正确操作可为 `modify` | 后台调用时设 `include_answers=True`；审核员界面使用 `public_review_payload(pred)`，不得展示答案。B 已兼容三种正确操作。 |
+| P0 · A / C | `predict(features, case_id)` | A 最新 `ebcdf21` 已实现 `predict(features, case_id, model_path=...)` | C 的 `run_model_batch` 仍只传 application 与 model_path，会缺少 case_id。需 A 保留兼容或 C 显式传案例 ID；本轮只适配 B 自有集成测试，不修改两组文件。 |
+| 已处理 · A | `gate.check(pred)` | A 最新已增加 `check(pred)`，同时保留 `evaluate_risk(application, pred)` | 两种接口可用。features 未带 case_id 时不再判为不匹配；有字段但与 pred 不一致时仍拦截。 |
+| 已处理 · A | `sample_cases(n)` | A 最新已提供从固定 holdout 抽样的接口 | 返回值不含目标标签；identity_verified=True 是演示假设，不是 German Credit 原始事实。C 可协商后改用此入口，不改其现有文件。 |
+| 已处理 · A / B | `make_gold_cases(n)` | A 最新已增加标准接口，返回含答案的后台 Prediction | 后台可直接交 B 保存；UI 仍需脱敏。modify 相关跨组优化按用户要求暂缓，functional 验收只使用二元操作。 |
 | 已处理 · B / C / D | 指标与报告可按签名调用 | `reviewer_stats()`、`system_stats()` 已实现 | 已用真实 SQLite 验证 Dashboard、D 报告及 Compliance 下载；D 原有替身测试保留，另增 B 的真实集成测试。 |
 | P0 · C | 缺失后台时应明确报错 | `tests/test_oversight_dashboard.py::test_backend_mode_reports_missing_functions_without_session_fallback` 未模拟缺失依赖，仍断言真实后台报错 | 指标实现后该断言过时。请 C 用空 metrics 模块 stub 模拟缺失；B 自有集成测试已验证真正缺失时仍报错。本次不修改队友文件。 |
 | P0 · B / C | 批量 → SQLite 队列 → 审批落库 | C 的 mock batch/审核使用 session_state，Model preview 不入队也不落库 | C 接入时先调用 `init_db()`，逐案例保存 prediction 和 gate；审核页改用 `get_pending_reviews()` 与 `submit_review()`，成功落库后才刷新 UI。B 接口已完成，本次未改 C 页面。 |
-| P0 · A / C | 审核操作包含 `modify` | A 四道金标准题正确操作为 `modify`，C 审核页该按钮禁用 | 真实金标准进入页面前，需 C 提供修改/暂缓操作并与 A 统一含义，否则这些题无法答对。B 已支持记录该操作。 |
+| 暂缓 · A / C | 审核操作包含 `modify` | A 部分金标准答案为 modify，C 按钮仍禁用 | 按本轮用户要求暂不推进；B 后台保留兼容，functional 演示只用批准/拒绝，不因该问题暂停验收。 |
 | P1 · A / C | 审核页可展示任意共享 Prediction | C 假定 features 必含 age、duration，且 top_factors 非空；A 金标准缺少这些数值且 factors 为空 | 直接换成真实队列会有 KeyError / 空序列解包风险。C 接入时需对缺失字段和无特征贡献提供合理展示；本次未改页面。 |
 | P1 · B / D | `auto_approved` 表示自动批准 | 报告模板将该字段展示为所有 `status=auto` 的自动决定 | 自动拒绝不能算自动批准。后续 B 应只计批准；请 D 同步修改展示标签，或全队确认新增独立 `auto_decided` 字段。当前未改模板。 |
 | 已处理 · B / D | 旧本地文档没有确定 `modify` 的统计口径 | 与 D 对齐：`modify` 计为 override，短理由为去除两端空白后少于 12 字符 | 正确答案为 `modify` 的错误探针已计入；无探针测量返回空值，不用 0% 代替无数据。 |
