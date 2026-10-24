@@ -239,12 +239,16 @@ def main() -> None:
     queue_column, detail_column = st.columns([1, 3])
     cases = {public_case_id(case.case_id): case for case in pending}
     case_ids = list(cases)
+
+    def case_label(display_id: str) -> str:
+        return f"🟨 GOLD · {display_id}" if cases[display_id].is_gold else display_id
+
     # Repair stale selection before constructing its widget, never after it.
     if state.get("rq_case_selector") not in case_ids:
         state["rq_case_selector"] = case_ids[0]
     with queue_column:
         st.subheader("Pending queue")
-        selected_id = st.selectbox("Choose an application", case_ids, key="rq_case_selector")
+        selected_id = st.selectbox("Choose an application", case_ids, format_func=case_label, key="rq_case_selector")
         st.caption("Approve or reject the application itself, regardless of the AI's suggestion.")
 
     if state.get("rq_active_case_id") != selected_id or state.get("rq_active_source") != source:
