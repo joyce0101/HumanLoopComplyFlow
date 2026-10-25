@@ -2,6 +2,8 @@
 
 import streamlit as st
 
+from loopledger.ui_accessibility import apply_accessible_styles
+
 
 PAGES = (
     (
@@ -37,6 +39,7 @@ flowchart LR
 
 def main() -> None:
     st.set_page_config(page_title="LoopLedger | AI Oversight", page_icon="🔎", layout="wide")
+    apply_accessible_styles()
     st.caption("Synoptix Responsible AI Hackathon · HumanLoop + ComplyFlow")
     st.title("LoopLedger")
     st.markdown("### Oversight that proves itself.")

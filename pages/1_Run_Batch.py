@@ -11,6 +11,7 @@ import pandas as pd
 import streamlit as st
 
 from loopledger.schemas import GateResult, Prediction
+from loopledger.ui_accessibility import apply_accessible_styles, show_error
 
 
 def _validate_batch_size(n: int) -> None:
@@ -263,6 +264,7 @@ def render_batch(result: dict) -> None:
 
 def main() -> None:
     st.set_page_config(page_title="Run Batch | LoopLedger", page_icon="▶️", layout="wide")
+    apply_accessible_styles()
     state = st.session_state
     st.title("Run Batch")
     st.write("Process a batch of demo loan applications and inspect which decisions need review.")
@@ -298,7 +300,7 @@ def main() -> None:
             state["rb_last_error"] = f"Batch could not be completed: {error}"
 
     if error := state.get("rb_last_error"):
-        st.error(error)
+        show_error(error)
         if "rb_last_batch" in state:
             st.caption("The results below belong to the previous completed batch.")
     if "rb_last_batch" in state:

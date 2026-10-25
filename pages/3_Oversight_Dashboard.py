@@ -13,36 +13,47 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
+from loopledger.ui_accessibility import (
+    CHART_STATUS_COLORS,
+    HISTOGRAM_STATUS_COLORS,
+    STATUS_PALETTE,
+    apply_accessible_styles,
+    render_status_legend,
+    show_error,
+    show_reviewer_status,
+)
+
 
 REVIEWER_COLUMNS = [
     "reviewer", "n_reviews", "avg_seconds", "override_rate", "gold_catch_rate",
     "short_reason_rate", "flag", "comparison_samples", "gold_samples",
 ]
 STATUS_LABELS = {
-    "no_alert": "🟢 No heuristic alert",
-    "watch": "🟡 Watch",
-    "review_signals": "🔴 Review signals",
-    "insufficient_data": "⚪ Insufficient data",
+    "no_alert": "✓ No heuristic alert",
+    "watch": "◇ Watch",
+    "review_signals": "! Review signals",
+    "insufficient_data": "i Insufficient data",
 }
+STATUS_TONES = {label: tone for tone, label in STATUS_LABELS.items()}
 FLAG_REASONS_HELP = """
 These are review signals, not proof that a decision is wrong.
 
 - **Short reasons:** `short_reason_rate_at_least_0.8` means at least 80% of
-  reasons are short (red); `short_reason_rate_at_least_0.4` means at least 40%
-  (yellow). Short means fewer than 12 characters after trimming outer whitespace.
+  reasons are short (high-severity signal); `short_reason_rate_at_least_0.4` means at least 40%
+  (watch-level signal). Short means fewer than 12 characters after trimming outer whitespace.
 - **No overrides:** `zero_overrides_across_5_or_more_reviews` means at least
   5 reviews can be compared with the AI and every decision followed it (yellow).
   It does not mean every application was approved.
 - **Fast reviews:** `avg_seconds_below_5` means mean review time below 5 seconds
-  (red); `avg_seconds_below_15` means below 15 seconds (yellow).
+  (high-severity signal); `avg_seconds_below_15` means below 15 seconds (watch-level signal).
 - **Gold checks:** `gold_catch_rate_below_0.5` means fewer than 50% of AI-error
-  controls were correctly handled (red); `gold_catch_rate_below_0.8` means fewer
-  than 80% (yellow). Both require at least 3 completed AI-error controls.
+  controls were correctly handled (high-severity signal); `gold_catch_rate_below_0.8` means fewer
+  than 80% (watch-level signal). Both require at least 3 completed AI-error controls.
 - **Insufficient data:** `fewer_than_5_reviews` means fewer than 5 reviews;
   `missing_or_invalid_timings` means timing is missing or invalid;
   `missing_ai_predictions` means an original AI decision is unavailable.
-  These checks take priority over red/yellow signals. Otherwise red takes
-  priority over yellow.
+  These checks take priority over measured signals. Otherwise high-severity
+  signals take priority over watch-level signals.
 """
 
 
@@ -229,7 +240,10 @@ def render_reviewers(frame: pd.DataFrame, durations: pd.DataFrame) -> None:
     for flag, message in (("review_signals", "Review signals"), ("watch", "Watch signals")):
         names = frame.loc[frame["flag"] == flag, "reviewer"].astype(str).tolist()
         if names:
-            st.warning(f"{message}: {', '.join(names)}. Inspect the indicators and sample counts below.")
+            show_reviewer_status(
+                f"{message}: {', '.join(names)}. Inspect the indicators and sample counts below.",
+                flag,
+            )
     display = frame.copy()
     for column in ("override_rate", "gold_catch_rate", "short_reason_rate"):
         display[column] = display[column].map(lambda value: "—" if pd.isna(value) else f"{value:.1%}")
@@ -241,9 +255,26 @@ def render_reviewers(frame: pd.DataFrame, durations: pd.DataFrame) -> None:
         "short_reason_rate": "Short reasons", "flag": "Status",
         "comparison_samples": "AI comparisons", "gold_samples": "Gold checks",
     })
+    def status_cell_style(values: pd.Series) -> list[str]:
+        styles = []
+        for value in values:
+            label = str(value)
+            tone_name = STATUS_TONES.get(label)
+            if tone_name is None:
+                styles.append("")
+                continue
+            tone = STATUS_PALETTE[tone_name]
+            styles.append(
+                f"background-color: {tone['background']}; color: {tone['text']}; "
+                f"border-left: 4px solid {tone['border']}; font-weight: 600;"
+            )
+        return styles
+
+    styled_display = display.style.apply(status_cell_style, subset=["Status"])
     st.subheader("Reviewer oversight indicators")
+    render_status_legend()
     st.dataframe(
-        display, hide_index=True, width="stretch",
+        styled_display, hide_index=True, width="stretch",
         column_config={
             "flag_reasons": st.column_config.ListColumn(
                 "Flag reasons", help=FLAG_REASONS_HELP,
@@ -252,8 +283,20 @@ def render_reviewers(frame: pd.DataFrame, durations: pd.DataFrame) -> None:
     )
     if "flag_reasons" in display.columns:
         st.caption("Hover over the Flag reasons column header to see reason-code definitions and thresholds.")
-    st.caption("— means no usable measurement. Rates apply to available samples; a green status does not establish effective oversight.")
+    st.caption(
+        "Status colors: blue means clear, amber means watch, orange means review signals, "
+        "and gray means insufficient data. Text labels carry the same meaning. "
+        "— means no usable measurement; no status label alone establishes effective oversight."
+    )
 
+    reviewer_colors = {
+        str(row["reviewer"]): CHART_STATUS_COLORS.get(row["flag"], "#9387AA")
+        for _, row in frame.iterrows()
+    }
+    distribution_colors = {
+        str(row["reviewer"]): HISTOGRAM_STATUS_COLORS.get(row["flag"], "#817198")
+        for _, row in frame.iterrows()
+    }
     means_column, distribution_column = st.columns(2)
     with means_column:
         st.subheader("Average review time")
@@ -263,7 +306,8 @@ def render_reviewers(frame: pd.DataFrame, durations: pd.DataFrame) -> None:
         else:
             figure = go.Figure(go.Bar(
                 x=measured["avg_seconds"].tolist(), y=measured["reviewer"].tolist(),
-                orientation="h", marker_color="#7c5cff",
+                orientation="h",
+                marker_color=[reviewer_colors[str(name)] for name in measured["reviewer"]],
                 hovertemplate="%{y}: %{x:.1f}s<extra></extra>",
             ))
             figure.update_layout(height=320, xaxis_title="Mean seconds", margin=dict(l=0, r=10, t=10, b=10))
@@ -274,16 +318,21 @@ def render_reviewers(frame: pd.DataFrame, durations: pd.DataFrame) -> None:
             st.info("No individual review timings are available; averages cannot form a distribution.")
         else:
             figure = go.Figure()
-            for reviewer, rows in durations.groupby("reviewer"):
+            patterns = ("", "/", "\\", "x", ".", "+", "-", "|")
+            for index, (reviewer, rows) in enumerate(durations.groupby("reviewer")):
                 figure.add_trace(go.Histogram(
-                    x=rows["seconds_spent"].tolist(), name=str(reviewer), nbinsx=20, opacity=0.7,
+                    x=rows["seconds_spent"].tolist(), name=str(reviewer), nbinsx=20, opacity=0.8,
+                    marker_color=distribution_colors.get(str(reviewer), "#817198"),
+                    marker_pattern_shape=patterns[index % len(patterns)],
                 ))
             figure.update_layout(height=320, barmode="overlay", xaxis_title="Seconds", yaxis_title="Reviews", margin=dict(l=0, r=10, t=10, b=10))
             st.plotly_chart(figure, width="stretch", key="od_time_distribution")
+    st.caption("Chart colors follow reviewer status. Reviewer names and patterns distinguish the distributions.")
 
 
 def main() -> None:
     st.set_page_config(page_title="Oversight Dashboard | LoopLedger", page_icon="📊", layout="wide")
+    apply_accessible_styles()
     st.title("Oversight Dashboard")
     st.write("Inspect review activity, AI overrides, control checks and time spent reviewing.")
     st.button("Refresh metrics", key="od_refresh")
@@ -293,7 +342,7 @@ def main() -> None:
             ledger.init_db()
         snapshot = load_backend_snapshot()
     except Exception as error:
-        st.error(f"Could not load oversight metrics: {error}")
+        show_error(f"Could not load oversight metrics: {error}")
         return
     for warning in snapshot["warnings"]:
         st.warning(warning)

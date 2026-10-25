@@ -12,6 +12,8 @@ from uuid import uuid4
 
 import streamlit as st
 
+from loopledger.ui_accessibility import apply_accessible_styles, show_error, show_success
+
 
 class StaleIntegrityError(ValueError):
     """The report no longer describes the chain result the user checked."""
@@ -122,15 +124,16 @@ def render_chain_status(chain: dict, source: str) -> None:
     if chain["status"] == "unchecked":
         st.info("Not checked / 未校验 — click Verify chain to request a result.")
     elif chain["status"] == "passed":
-        st.success(f"{prefix}Check passed / 校验通过 — chain intact for the checked records.")
+        show_success(f"{prefix}Check passed / 校验通过 — chain intact for the checked records.")
     elif chain["status"] == "inconsistent":
-        st.error(f"{prefix}Inconsistency detected / 发现异常 — first failed event #{chain['broken_id']}.")
+        show_error(f"{prefix}Inconsistency detected / 发现异常 — first failed event #{chain['broken_id']}.")
     else:
-        st.error(f"{prefix}Execution failed / 执行失败 — {chain['error']}")
+        show_error(f"{prefix}Execution failed / 执行失败 — {chain['error']}")
 
 
 def main() -> None:
     st.set_page_config(page_title="Compliance & Evidence | LoopLedger", page_icon="📄", layout="wide")
+    apply_accessible_styles()
     st.title("Compliance & Evidence")
     st.write("Check audit-chain consistency, preview a report, and download its evidence artifacts.")
     source = "Backend interfaces"
@@ -179,7 +182,7 @@ def main() -> None:
         except Exception as error:
             state["cp_report_error"] = str(error)
     if state.get("cp_report_error"):
-        st.error(f"Could not generate report: {state['cp_report_error']}")
+        show_error(f"Could not generate report: {state['cp_report_error']}")
     bundle = state.get("cp_export")
     if bundle:
         with st.container(height=420, border=True):

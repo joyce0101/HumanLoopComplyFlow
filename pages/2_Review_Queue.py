@@ -12,6 +12,15 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from loopledger.schemas import Prediction, ReviewAction
+from loopledger.ui_accessibility import (
+    APPROVE_BLUE,
+    REJECT_ORANGE,
+    apply_accessible_styles,
+    show_approve,
+    show_error,
+    show_reject,
+    show_success,
+)
 
 
 FEATURE_LABELS = {
@@ -293,9 +302,9 @@ def render_prediction(pred: Prediction, *, database: bool = False) -> None:
     with recommendation:
         st.markdown("#### AI recommendation")
         if pred.decision == "approve":
-            st.success("Approve application")
+            show_approve("Approve application")
         else:
-            st.warning("Reject application")
+            show_reject("Reject application")
         st.metric("Confidence", f"{pred.confidence:.0%}")
         st.progress(pred.confidence)
 
@@ -312,7 +321,7 @@ def render_prediction(pred: Prediction, *, database: bool = False) -> None:
                 x=list(values),
                 y=[label for label, _ in details],
                 orientation="h",
-                marker_color=["#dc2626" if value > 0 else ("#16a34a" if value < 0 else "#94a3b8") for value in values],
+                marker_color=[REJECT_ORANGE if value > 0 else (APPROVE_BLUE if value < 0 else "#64748B") for value in values],
                 customdata=[[description, escape(name)] for name, (_, description) in zip(names, details)],
                 hovertemplate="<b>%{y}</b><br>%{customdata[0]}<br><br>Contribution: %{x:+.4f} log-odds<br>Model field: %{customdata[1]}<extra></extra>",
             )
@@ -332,7 +341,8 @@ def render_prediction(pred: Prediction, *, database: bool = False) -> None:
         st.caption(
             ("Stored contributions; the local logistic model uses log-odds contributions, not SHAP. "
              if database else "Illustrative values, not measured SHAP output. ")
-            + "Positive → reject; negative → approve. Hover a bar for its meaning and application value. "
+            + "Color key: orange and positive values point toward reject; blue and negative values point toward approve. "
+            "Hover a bar for its meaning and application value. "
             "These contributions are not individual confidence scores."
         )
 
@@ -365,13 +375,13 @@ def render_review_form(pred: Prediction, *, database: bool = False) -> None:
     if not (approve or reject):
         return
     if not reviewer.strip():
-        st.error("Enter the reviewer's name before submitting.")
+        show_error("Enter the reviewer's name before submitting.")
         return
     if not reason.strip():
-        st.error("Enter a reason before submitting.")
+        show_error("Enter a reason before submitting.")
         return
     if not database and any(review.case_id == pred.case_id for review in state["rq_submitted_reviews"]):
-        st.error("This application has already been reviewed.")
+        show_error("This application has already been reviewed.")
         return
 
     action = ReviewAction(
@@ -389,7 +399,7 @@ def render_review_form(pred: Prediction, *, database: bool = False) -> None:
             submit_mock_review(action)
     except Exception:
         # A failed sink must not discard input or advance the selected case.
-        st.error("Submission failed. Your input is preserved; please try again.")
+        show_error("Submission failed. Your input is preserved; please try again.")
         return
 
     if not database:
@@ -408,6 +418,7 @@ def render_review_form(pred: Prediction, *, database: bool = False) -> None:
 
 def main() -> None:
     st.set_page_config(page_title="Review Queue | LoopLedger", page_icon="📋", layout="wide")
+    apply_accessible_styles(review_queue=True)
     state = st.session_state
     st.title("Review Queue")
     st.write("Review the application and AI recommendation, then record your own decision.")
@@ -418,10 +429,10 @@ def main() -> None:
         ledger.init_db()
         pending = ledger.get_pending_reviews()
     except Exception:
-        st.error("Could not load the database review queue. Check the database connection and refresh.")
+        show_error("Could not load the database review queue. Check the database connection and refresh.")
         return
     if message := state.pop("rq_success_message", None):
-        st.success(message)
+        show_success(message)
 
     st.metric("Pending applications", len(pending))
     if not pending:
