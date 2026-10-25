@@ -7,7 +7,6 @@ import streamlit as st
 
 APPROVE_BLUE = "#5F97BE"
 REJECT_ORANGE = "#C18678"
-FACTOR_YELLOW = "#AA8D4F"
 
 CHART_STATUS_COLORS = {
     "no_alert": "#5F97BE",
@@ -62,11 +61,6 @@ def apply_accessible_styles(*, review_queue: bool = False) -> None:
             background: #F7E1E8;
             border-color: #B98B9C;
             color: #5B3F4A;
-        }
-        .ll-status--approve {
-            background: #C9E3F3;
-            border-color: #5F97BE;
-            color: #294B63;
         }
         .ll-status__icon { font-weight: 700; }
         [data-testid="stAlertContainer"]:has([data-testid="stAlertContentInfo"]) {
@@ -143,22 +137,6 @@ def apply_accessible_styles(*, review_queue: bool = False) -> None:
         </style>
         """ + ("""
         <style>
-        .st-key-rq_confidence_card {
-            background-color: #FBF1CF;
-            border: 2px solid #AA8D4F;
-            border-radius: 0.75rem;
-            padding: 1rem 1.25rem;
-        }
-        .st-key-rq_confidence_card [data-testid="stMetricLabel"] p {
-            color: #294B63;
-            font-size: 1.1rem;
-            font-weight: 600;
-        }
-        .st-key-rq_confidence_card [data-testid="stMetricValue"] {
-            color: #294B63;
-            font-size: 3.5rem;
-            line-height: 1.15;
-        }
         .ll-status--blue {
             background: #FBF1CF;
             border-color: #BDA567;
@@ -186,7 +164,7 @@ def _show_status(message: object, *, tone: str, icon: str, role: str) -> None:
 
 
 def show_approve(message: object) -> None:
-    _show_status(message, tone="approve", icon="✓", role="status")
+    _show_status(message, tone="blue", icon="✓", role="status")
 
 
 def show_reject(message: object) -> None:
@@ -198,7 +176,7 @@ def show_error(message: object) -> None:
 
 
 def show_success(message: object) -> None:
-    _show_status(message, tone="blue", icon="✓", role="status")
+    show_approve(message)
 
 
 def show_reviewer_status(message: object, status: str) -> None:
