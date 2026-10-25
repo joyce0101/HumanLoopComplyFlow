@@ -156,7 +156,7 @@ def build_report_json() -> dict:
             "A hash chain detects straightforward edits to existing logged events but does not prevent privileged rewrites or prove the event history is complete.",
             "The event-chain check does not independently verify the separate cases table.",
             "Reviewer timings, overrides, gold checks and reason lengths are proxies, not proof of independent or effective human judgment.",
-            "Neither legal applicability nor conformity with the EU AI Act or ISO/IEC 42001 is established.",
+            "The selected UK GDPR mapping does not establish legal applicability or compliance, a lawful basis, meaningful human involvement, Article 22C safeguards, fulfilment of data-subject rights or completion of a DPIA.",
             "Underlying backend statistics and chain checks are read in separate transactions; this is not an atomic database snapshot.",
         ],
     }

@@ -71,7 +71,8 @@ def test_report_json_contract():
     assert report["system_stats"]["total"] == 1
     assert report["integrity"]["chain_intact"] is True
     assert report["event_counts"]["review"] == 1
-    assert len(report["regulatory_mapping"]) == 4
+    assert report["regulatory_mapping"]
+    assert {item["framework"] for item in report["regulatory_mapping"]} == {"UK GDPR"}
     assert len(report["report_id"]) == 16
     assert "Local SQLite ledger snapshot" in report["data_origin"]
     json.dumps(report, allow_nan=False)
@@ -81,10 +82,34 @@ def test_markdown_report_contract():
     markdown = _load_evidence_with_fake_backend().build_report()
     assert "LoopLedger" in markdown
     assert "Reviewer Oversight Indicators" in markdown
-    assert "Article 14" in markdown
+    assert "Articles 22A-22C" in markdown
+    assert "UK GDPR" in markdown
     assert "PASS" in markdown
     assert "N/A (no control cases)" in markdown
     assert "Automatically rejected" in markdown
+
+
+def test_gdpr_mapping_exposes_evidence_locations_and_unmet_safeguards():
+    module = _load_evidence_with_fake_backend()
+    report, markdown = module.build_report_bundle()
+    mapping = report["regulatory_mapping"]
+    article_22 = next(item for item in mapping if item["reference"].startswith("Articles 22A-22C"))
+    article_30 = next(item for item in mapping if item["reference"].startswith("Article 30"))
+    for safeguard in ("information", "representations", "human intervention", "contest"):
+        assert safeguard in article_22["expectation"].lower()
+    assert "Article 6(1)(ea)" in article_22["limitation"]
+    assert "not a record of processing activities" in article_30["limitation"].lower()
+    assert "Evidence location" in markdown
+    assert "not a UK GDPR compliance determination" in markdown
+    section = markdown.split("## 5.", 1)[1].split("## 6.", 1)[0]
+    assert "EU AI Act" not in section
+    assert "ISO/IEC" not in section
+    assert "EU GDPR" not in section
+    assert "Article 22(2) exception" not in section
+    for item in mapping:
+        assert item["evidence_field"] in section
+        assert item["limitation"] in section
+        assert item["source_url"].startswith(("https://www.legislation.gov.uk/", "https://ico.org.uk/"))
 
 
 def test_failure_flag_exported():

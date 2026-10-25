@@ -59,13 +59,15 @@ The SHA-256 chain verifies consistency of the observed local **events** history 
 
 ## 5. Regulatory & Standards Mapping
 
-| Reference | Intended requirement | Supporting feature | Gap / limitation |
-|---|---|---|---|
+**Scope: UK GDPR**, read alongside the Data Protection Act 2018 and applicable Data (Use and Access) Act 2025 amendments. References checked on 25 October 2026. The automated-decision row uses Articles 22A-22C, brought into force on 5 February 2026. These are selected requirements, not a full UK GDPR assessment; applicability depends on the processing and deployment.
+
+| UK GDPR reference | Requirement summary | Available supporting evidence | Evidence location | Gap / further assessment |
+|---|---|---|---|---|
 {% for item in regulatory_mapping %}
-| [{{ item.framework }} — {{ item.reference }}]({{ item.source_url }}) | {{ item.expectation }} | {{ item.loopledger_feature }} | {{ item.limitation }} |
+| [{{ item.framework }} — {{ item.reference }}]({{ item.source_url }}) | {{ item.expectation }} | {{ item.loopledger_feature }} | {{ item.evidence_field }} | {{ item.limitation }} |
 {% endfor %}
 
-This mapping shows **potentially relevant supporting evidence**, not a conformity assessment or certification.
+This mapping is **not a UK GDPR compliance determination or certification**. An audit-chain PASS or a green reviewer flag does not establish a lawful basis, meaningful human involvement, the four Article 22C safeguards, fulfilment of data-subject rights or completion of a DPIA. See [DUAA 2025 section 80](https://www.legislation.gov.uk/ukpga/2025/18/section/80) and [commencement regulation 2](https://www.legislation.gov.uk/uksi/2026/82/regulation/2).
 
 ## 6. Assumptions, Risks & Limitations
 
@@ -77,6 +79,6 @@ This mapping shows **potentially relevant supporting evidence**, not a conformit
 
 1. Validate the complete connected prediction, database, human-review and export workflow using representative end-to-end tests.
 2. Validate risk-gate thresholds and gold controls with appropriate subject-matter experts and relevant datasets.
-3. Assess whether and how the EU AI Act and applicable data-protection requirements apply to a specific deployment.
+3. Assess UK GDPR applicability, lawful basis, Article 22A-22C safeguards, data-subject rights and DPIA requirements for the specific deployment.
 4. Implement access controls, externally anchored audit logs, retention controls and governance before production use.
 5. Replace sequential backend reads with one transaction-consistent report query if production-grade attestations are required.
