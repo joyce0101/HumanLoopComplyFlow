@@ -221,58 +221,6 @@ def submit_review(action: ReviewAction) -> None:
     log_event("review", asdict(action))
 
 
-def submit_verified_review(action: ReviewAction, receipt: dict, *, workspace_nonce: str | None = None) -> None:
-    """Atomically save verification evidence and the human review decision.
-
-    An HMAC-signed, case/reviewer-bound one-use receipt is required. Unlike the
-    two-event legacy demo helper, both events commit together or neither does.
-    This protects the verified UI flow; the unrestricted legacy submit_review()
-    still exists for compatibility and is not a global enforcement mechanism.
-    """
-    from .verification_service import verify_receipt, verify_workspace_pass
-    if not isinstance(action, ReviewAction):
-        raise TypeError("action must be ReviewAction")
-    if workspace_nonce is not None:
-        # Each submission checks the signed session grant again, including its expiry.
-        # This is NOT a new camera challenge per case.
-        if not verify_workspace_pass(receipt, action.reviewer, workspace_nonce):
-            raise ValueError("30-minute reviewer session expired; re-verify your face")
-        evidence = {
-            "result": "passed", "verification_method": "periodic_workspace_face_check",
-            "reviewer": action.reviewer, "case_id": action.case_id,
-            "entry_challenge_id": receipt["entry_challenge_id"],
-            "verified_at_epoch": receipt["issued_at_epoch"],
-            "expires_at_epoch": receipt["expires_at_epoch"],
-        }
-    else:
-        # Preserve the original case-scoped interface for existing callers/tests.
-        if not verify_receipt(receipt, action.case_id, action.reviewer):
-            raise ValueError("Valid, unexpired reviewer verification receipt required")
-        if os.environ.get("LOOPLEDGER_REVIEWER_VERIFY_MODE", "").strip().lower() == "full":
-            screen = receipt.get("screen_mouse")
-            if (not isinstance(screen, dict) or screen.get("status") != "passed"
-                    or screen.get("visible_cursor_checks", 0) < 4
-                    or screen.get("cursor_alignment_rate", 0) < 0.75):
-                raise ValueError("Full mode requires screen/OS cursor alignment evidence")
-        evidence = {k: v for k, v in receipt.items() if k != "signature"}
-    payloads = [("reviewer_verification", evidence), ("review", asdict(action))]
-    with _connection(write=True) as connection:
-        # Enforce existing case status & action schema FIRST, inside txn.
-        _apply_event(connection, "review", asdict(action))
-        prev = connection.execute("SELECT hash FROM events ORDER BY id DESC LIMIT 1").fetchone()
-        previous_hash = prev["hash"] if prev else GENESIS_HASH
-        for event_type, payload in payloads:
-            serialized = _json(payload)
-            stamp = datetime.now(timezone.utc).isoformat(timespec="microseconds")
-            event_hash = _hash(previous_hash, stamp, event_type, serialized)
-            connection.execute(
-                "INSERT INTO events (ts,event_type,case_id,payload,prev_hash,hash) "
-                "VALUES (?,?,?,?,?,?)",
-                (stamp, event_type, action.case_id, serialized, previous_hash, event_hash),
-            )
-            previous_hash = event_hash
-
-
 def get_all_events() -> list[dict]:
     """Return chronological event dictionaries with decoded JSON payloads."""
     with _connection() as connection:

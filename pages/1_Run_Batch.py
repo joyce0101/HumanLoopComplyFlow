@@ -2,9 +2,6 @@
 
 from dataclasses import asdict, replace
 import importlib
-import html
-import json
-import time
 import math
 import random
 from pathlib import Path
@@ -12,8 +9,6 @@ from uuid import uuid4
 
 import pandas as pd
 import streamlit as st
-
-from loopledger import verification_ui
 
 from loopledger.schemas import GateResult, Prediction
 
@@ -266,82 +261,29 @@ def render_batch(result: dict) -> None:
     st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
 
 
-def show_reviewer_verification_status() -> None:
-    """Live browser countdown; backend authentication remains authoritative."""
-    import streamlit.components.v1 as components
-
-    reviewer = verification_ui.authenticated_reviewer()
-    grant = st.session_state.get("vr_workspace_pass", {})
-    valid = verification_ui.workspace_unlocked()
-    remaining = max(0, int(grant.get("expires_at_epoch", 0) - time.time())) if valid else 0
-    # A browser-side clock runs even when Streamlit is idle. performance.now()
-    # measures elapsed time, avoiding clock differences between browser/server.
-    reviewer_label = html.escape(str(reviewer or "unknown"))
-    initial = json.dumps(remaining)
-    initial_status = "true" if valid else "false"
-    components.html(f"""
-      <style>
-        html, body {{ margin: 0; background: transparent; font-family: sans-serif; }}
-        #status {{ background: #173e2a; color: #b8f4cb; padding: 12px 16px;
-                   border-radius: 7px; font-size: 14px; line-height: 22px; }}
-        #status.expired {{ background: #491f27; color: #ffd3d8; }}
-        #clock {{ font-variant-numeric: tabular-nums; }}
-      </style>
-      <div id="status" role="status" aria-live="off">
-        <span id="message"></span>
-      </div>
-      <script>
-        const initialSeconds = {initial};
-        const initiallyValid = {initial_status};
-        const startedAt = performance.now();
-        const status = document.getElementById('status');
-        const message = document.getElementById('message');
-        function render() {{
-          const elapsed = Math.floor((performance.now() - startedAt) / 1000);
-          const remaining = Math.max(0, initialSeconds - elapsed);
-          if (!initiallyValid || remaining === 0) {{
-            status.classList.add('expired');
-            message.textContent = '🔒 Reviewer verification expired. Reverify your face before continuing.';
-          }} else {{
-            const mm = String(Math.floor(remaining / 60)).padStart(2, '0');
-            const ss = String(remaining % 60).padStart(2, '0');
-            message.textContent = '✅ Reviewer face verified ({reviewer_label}) · time until next verification: ' + mm + ':' + ss;
-          }}
-        }}
-        render();
-        setInterval(render, 250);
-      </script>
-    """, height=52, scrolling=False)
-
-
 def main() -> None:
     st.set_page_config(page_title="Run Batch | LoopLedger", page_icon="▶️", layout="wide")
-    verification_ui.require_workspace_access()
     state = st.session_state
     st.title("Run Batch")
     st.write("Process a batch of demo loan applications and inspect which decisions need review.")
     st.caption("Applications and routing results are saved to the database.")
     st.caption(
-        "Demo assumption: sampled applicants are treated as identity-verified for "
-        "risk-gate testing; this does not constitute real applicant identity verification. "
+        "The dataset contains no identity-verification evidence. Without the "
+        "explicit demo assumption below, the risk gate requires manual review. "
         "Loan amounts use dataset units."
     )
     if state.get("rb_last_batch", {}).get("mode") not in (None, "Model + database"):
         state.pop("rb_last_batch", None)
         state.pop("rb_last_error", None)
 
-    # Use ordinary Streamlit controls so the independently refreshing verification
-    # status can appear between the slider and the action button (not inside a form).
-    n = st.slider("Number of applications", 1, 200, 50, key="rb_batch_size")
-    show_reviewer_verification_status()
-    run = st.button("Run batch", type="primary")
-
-    # This affects demo applicants only, never the reviewer's camera authentication.
-    identity_verified = True
-
-    if run and not verification_ui.workspace_unlocked():
-        st.error("Face verification has expired. Re-verify before running a batch.")
-        st.stop()
+    with st.form("rb_run_form"):
+        n = st.slider("Number of applications", 1, 200, 50, key="rb_batch_size")
+        identity_verified = st.checkbox(
+            "Assume identity verified for this dataset demo",
+            value=False,
+            key="rb_demo_identity_verified",
+        )
+        run = st.form_submit_button("Run batch", type="primary")
 
     if run:
         batch_id = f"B-{uuid4().hex[:12]}"

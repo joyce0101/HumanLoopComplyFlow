@@ -2,8 +2,6 @@
 
 import streamlit as st
 
-from loopledger import verification_ui
-
 
 PAGES = (
     (
@@ -39,7 +37,6 @@ flowchart LR
 
 def main() -> None:
     st.set_page_config(page_title="LoopLedger | AI Oversight", page_icon="🔎", layout="wide")
-    verification_ui.require_workspace_access()
     st.caption("Synoptix Responsible AI Hackathon · HumanLoop + ComplyFlow")
     st.title("LoopLedger")
     st.markdown("### Oversight that proves itself.")

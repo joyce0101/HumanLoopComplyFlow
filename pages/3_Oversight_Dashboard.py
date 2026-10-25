@@ -13,8 +13,6 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from loopledger import verification_ui
-
 
 REVIEWER_COLUMNS = [
     "reviewer", "n_reviews", "avg_seconds", "override_rate", "gold_catch_rate",
@@ -286,7 +284,6 @@ def render_reviewers(frame: pd.DataFrame, durations: pd.DataFrame) -> None:
 
 def main() -> None:
     st.set_page_config(page_title="Oversight Dashboard | LoopLedger", page_icon="📊", layout="wide")
-    verification_ui.require_workspace_access()
     st.title("Oversight Dashboard")
     st.write("Inspect review activity, AI overrides, control checks and time spent reviewing.")
     st.button("Refresh metrics", key="od_refresh")

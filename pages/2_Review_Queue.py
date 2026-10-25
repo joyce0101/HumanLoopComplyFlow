@@ -11,8 +11,6 @@ import time
 import plotly.graph_objects as go
 import streamlit as st
 
-from loopledger import verification_ui
-
 from loopledger.schemas import Prediction, ReviewAction
 
 
@@ -343,18 +341,14 @@ def render_review_form(pred: Prediction, *, database: bool = False) -> None:
     """Validate then call the selected sink; failed writes preserve the draft."""
     state = st.session_state
     display_id = public_case_id(pred.case_id) if database else pred.case_id
-    ready = verification_ui.workspace_unlocked()
     st.markdown("#### Your decision")
-    if not ready:
-        st.warning("Your face verification has expired. Verify again before submitting.")
     elapsed = max(0.0, time.perf_counter() - state["rq_started_at"])
     st.caption(
         f"Time on this visit: {elapsed:.1f}s. Final elapsed time is recorded "
         "on submission and includes time spent away from the page."
     )
     with st.form("rq_review_form", clear_on_submit=False):
-        reviewer = verification_ui.authenticated_reviewer() or ""
-        st.text_input("Authenticated reviewer", value=reviewer, disabled=True, key="rq_authenticated_display")
+        reviewer = st.text_input("Reviewer", key="rq_reviewer", placeholder="e.g. alice")
         reason = st.text_area(
             "Reason (required)",
             key=f"rq_reason_{display_id}",
@@ -362,10 +356,10 @@ def render_review_form(pred: Prediction, *, database: bool = False) -> None:
         )
         approve_column, reject_column = st.columns(2)
         approve = approve_column.form_submit_button(
-            "Approve application", key=f"rq_approve_{display_id}", type="primary", disabled=not ready
+            "Approve application", key=f"rq_approve_{display_id}", type="primary"
         )
         reject = reject_column.form_submit_button(
-            "Reject application", key=f"rq_reject_{display_id}", disabled=not ready
+            "Reject application", key=f"rq_reject_{display_id}"
         )
 
     if not (approve or reject):
@@ -387,13 +381,10 @@ def render_review_form(pred: Prediction, *, database: bool = False) -> None:
         reason=reason.strip(),
         seconds_spent=max(0.0, time.perf_counter() - state["rq_started_at"]),
     )
-    if not verification_ui.workspace_unlocked():
-        st.error("Face verification expired. Re-verify before submitting; your draft is preserved.")
-        return
     try:
         if database:
             from loopledger import ledger
-            ledger.submit_verified_review(action, state.get("vr_workspace_pass"), workspace_nonce=state.get("vr_workspace_nonce", ""))
+            ledger.submit_review(action)
         else:
             submit_mock_review(action)
     except Exception:
@@ -417,7 +408,6 @@ def render_review_form(pred: Prediction, *, database: bool = False) -> None:
 
 def main() -> None:
     st.set_page_config(page_title="Review Queue | LoopLedger", page_icon="📋", layout="wide")
-    verification_ui.require_workspace_access()
     state = st.session_state
     st.title("Review Queue")
     st.write("Review the application and AI recommendation, then record your own decision.")
