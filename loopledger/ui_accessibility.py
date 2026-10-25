@@ -53,33 +53,36 @@ def apply_accessible_styles(*, review_queue: bool = False) -> None:
             padding: 0.7rem 0.9rem;
         }
         .ll-status--blue {
-            background: #E3F0F8;
-            border-color: #5F97BE;
-            color: #294B63;
+            background: #FBF1CF;
+            border-color: #BDA567;
+            color: #554B2E;
         }
         .ll-status--orange {
-            background: #FBE6DE;
-            border-color: #C18678;
-            color: #4B4350;
+            background: #F7E1E8;
+            border-color: #B98B9C;
+            color: #5B3F4A;
         }
         .ll-status__icon { font-weight: 700; }
-        [data-testid="stAlertContainer"]:has([data-testid="stAlertContentInfo"]),
-        [data-testid="stAlertContainer"]:has([data-testid="stAlertContentSuccess"]) {
-            background-color: #E3F0F8;
-            color: #294B63;
+        [data-testid="stAlertContainer"]:has([data-testid="stAlertContentInfo"]) {
+            background-color: #EEE8F6;
+            color: #4B465D;
         }
-        [data-testid="stAlertContentInfo"],
-        [data-testid="stAlertContentSuccess"] { color: #294B63; }
+        [data-testid="stAlertContainer"]:has([data-testid="stAlertContentSuccess"]) {
+            background-color: #FBF1CF;
+            color: #554B2E;
+        }
+        [data-testid="stAlertContentInfo"] { color: #4B465D; }
+        [data-testid="stAlertContentSuccess"] { color: #554B2E; }
         [data-testid="stAlertContainer"]:has([data-testid="stAlertContentWarning"]) {
             background-color: #F5EBD0;
             color: #514B3D;
         }
         [data-testid="stAlertContentWarning"] { color: #514B3D; }
         [data-testid="stAlertContainer"]:has([data-testid="stAlertContentError"]) {
-            background-color: #FBE6DE;
-            color: #4B4350;
+            background-color: #F7E1E8;
+            color: #5B3F4A;
         }
-        [data-testid="stAlertContentError"] { color: #4B4350; }
+        [data-testid="stAlertContentError"] { color: #5B3F4A; }
         [data-testid="stSliderThumbValue"],
         [data-testid="stSliderThumbValue"] p { color: #294B63 !important; }
         [data-testid="stButton"] button,
@@ -135,14 +138,14 @@ def apply_accessible_styles(*, review_queue: bool = False) -> None:
         """ + ("""
         <style>
         .ll-status--blue {
-            background: #EAF4FA;
-            border-color: #5F97BE;
-            color: #294B63;
+            background: #FBF1CF;
+            border-color: #BDA567;
+            color: #554B2E;
         }
         .ll-status--orange {
-            background: #FBE6DE;
-            border-color: #C18678;
-            color: #4B4350;
+            background: #F7E1E8;
+            border-color: #B98B9C;
+            color: #5B3F4A;
         }
         </style>
         """ if review_queue else ""),
