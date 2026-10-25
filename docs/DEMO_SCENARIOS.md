@@ -6,14 +6,13 @@
 
 ## 1. 演示前准备
 
-在项目根目录、已安装项目依赖的 Python 环境下运行。正式演示统一使用根目录的 `loopledger.db`。
+在项目根目录、已安装项目依赖的 Python 环境下运行。整场演示只使用项目根目录的 `loopledger.db`，不创建临时数据库。
 
 **每次演示或彩排前，都必须清空上一轮记录、重新初始化，并从场景一完整重演。** 不沿用上次的批次、审核记录或待审队列。
 
-先在运行 8503、8504 服务的终端分别按 `Ctrl+C` 停止服务，再执行下面的准备命令。**命令会清空 `loopledger.db` 的现有申请和审计事件、重建本轮演示数据，并删除上一轮的篡改副本；不创建备份。**
+先在运行 8503 服务的终端按 `Ctrl+C` 停止服务，再执行下面的准备命令。**命令会清空 `loopledger.db` 的现有申请和审计事件并重建本轮演示数据；不创建备份。**
 
 ```bash
-python -c "from pathlib import Path; Path('loopledger-tampered.db').unlink(missing_ok=True)"
 python scripts/demo_reset.py --db loopledger.db --force --profile functional
 LOOPLEDGER_DB_PATH=loopledger.db python - <<'PY'
 from loopledger import ledger
@@ -141,35 +140,49 @@ AI 建议批准，预设答案也是批准。查看证据后，以 `live_reviewe
 
 1. 在 8503 的干净库页面点击 Verify chain，展示通过。
 2. 生成报告，预览当前申请、审核和指标，下载 Markdown 与 JSON。
-3. 使用终端 B，从已完成现场操作的干净库创建一个新副本，仅修改副本中第 10 条审计事件：
+3. 报告下载完成后，在终端 A 按 `Ctrl+C` 停止 8503 服务。直接修改根目录 `loopledger.db` 中第 10 条事件的 payload，保留原 hash：
 
-```bash
-python scripts/demo_tamper.py --source loopledger.db --output loopledger-tampered.db --event-id 10
+```python
+import json
+import sqlite3
+from pathlib import Path
+
+from loopledger import ledger
+
+assert ledger.verify_chain() == (True, None), "先确认原始事件链通过"
+with sqlite3.connect(Path("loopledger.db").resolve()) as db:
+    row = db.execute("SELECT payload FROM events WHERE id = 10").fetchone()
+    assert row is not None, "数据库中不存在第 10 条事件"
+    payload = json.loads(row[0])
+    payload["_demo_tamper_marker"] = "manually_changed_for_demo"
+    db.execute(
+        "UPDATE events SET payload = ? WHERE id = 10",
+        (json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")),),
+    )
+
+print("Chain check:", ledger.verify_chain())  # 预期为 (False, 10)
 ```
 
-4. 该输出文件必须不存在。启动副本页面：
+4. 确认输出为 `(False, 10)` 后，仍使用同一个 `loopledger.db` 重启页面：
 
 ```bash
-LOOPLEDGER_DB_PATH=loopledger-tampered.db python -m streamlit run app.py --server.port 8504
+LOOPLEDGER_DB_PATH=loopledger.db python -m streamlit run app.py --server.port 8503
 ```
 
-5. 在 http://127.0.0.1:8504/ 的 Compliance 页面校验，展示“发现异常，首个失败事件 #10”。生成的异常证据报告应明确显示 FAIL，仍可下载留存。
-6. 返回 8503，再次校验原库仍通过。
+5. 在 http://127.0.0.1:8503/ 的 Compliance 页面校验，展示“发现异常，首个失败事件 #10”。生成的异常证据报告应明确显示 FAIL，仍可下载留存。
 
-讲解：“我们既记录业务结果，也检查记录的一致性。改动一条本地事件能被发现，但本地哈希链并不等于不可篡改存储，也不证明事件完整或系统已经获得合规认证。”
+讲解：“我们既记录业务结果，也检查记录的一致性。改动一条本地事件能被发现，但本地哈希链并不等于不可篡改存储，也不证明事件完整或系统已经获得合规认证。”本场演示结束时，根目录数据库的事件链处于故意损坏状态；下次演示前重新执行第 1 节的初始化命令，即可从场景一开始并恢复完整链。
 
 ## 3. 现场顺序与准备检查
 
 - 每次演示或彩排都先停止服务，执行第 1 节全部准备命令，再启动页面并从场景一开始；不要跳过重置或复用上一轮进度。
-- 前半段展示一轮真实模型批次及三次人工操作；后半段查看预置行为对照，再导出和对比篡改副本。
+- 前半段展示一轮真实模型批次及三次人工操作；后半段查看预置行为对照、导出报告，并直接检查被修改的根数据库。
 - 暂不将“授权例外与 AI 拒绝矛盾”的控制题作为主案例：当前场景文案暗示应推翻 AI，入库标准答案却同为拒绝，题意与答案尚需统一。
 - 现场审核理由写完整，使用新审核员名称；不修改预置审核历史来凑颜色或分数。
-- 提前打开两个终端，正式演示先只运行 8503；8504 在创建最新篡改副本后启动，保证比较的是同一时点的数据。
+- 演示全程只启动 8503；直接修改数据库前先停止服务，修改后再用相同路径重启，避免应用连接占用或页面显示旧状态。
 - 路径、模型和 Python 环境提前确认；浏览器中只保留必要页面，避免连错数据库或端口。
-- 本轮报告在场景六重新生成并下载；不要把上一轮下载的报告当成本轮结果。篡改副本也必须在本轮三次现场审核完成后重新创建。
+- 本轮报告在场景六重新生成并下载；不要把上一轮下载的报告当成本轮结果。场景六直接修改本轮的根数据库，下次演示准备步骤会清空并重建它。
 
 ## 4. 已做的验证
 
-此前使用独立临时目录运行现有 demo_check，结果通过：16 条申请、14 次审核、46 条事件；三名预置审核员的指标与上表一致；篡改副本定位到第 10 条事件。该独立验收没有改变当时的项目数据库；正式演示按第 1 节直接重置根目录 `loopledger.db`。
-
-另以纯预览调用当前 run_mixed_batch(50, identity_verified=True)，确认 45 条模型申请、5 条控制题及 27/5/18 的分流结果。预览未将该批次保存到项目数据库。正式演示前仍需彩排完整浏览器操作。
+纯预览调用当前 `run_mixed_batch(50, identity_verified=True)` 时，确认 45 条模型申请、5 条控制题及 27/5/18 的分流结果。该结果不写入数据库；正式演示时在场景一通过页面将批次写入根目录 `loopledger.db`。正式演示前仍需彩排完整浏览器操作。
