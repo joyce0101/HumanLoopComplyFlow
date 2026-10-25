@@ -14,7 +14,7 @@ import streamlit as st
 from loopledger.schemas import Prediction, ReviewAction
 from loopledger.ui_accessibility import (
     APPROVE_BLUE,
-    REJECT_ORANGE,
+    FACTOR_YELLOW,
     apply_accessible_styles,
     show_approve,
     show_error,
@@ -305,8 +305,9 @@ def render_prediction(pred: Prediction, *, database: bool = False) -> None:
             show_approve("Approve application")
         else:
             show_reject("Reject application")
-        st.metric("Confidence", f"{pred.confidence:.0%}")
-        st.progress(pred.confidence)
+        with st.container(key="rq_confidence_card"):
+            st.metric("Confidence", f"{pred.confidence:.0%}")
+            st.progress(pred.confidence)
 
     with explanation:
         st.markdown("#### Top contributing factors")
@@ -321,7 +322,7 @@ def render_prediction(pred: Prediction, *, database: bool = False) -> None:
                 x=list(values),
                 y=[label for label, _ in details],
                 orientation="h",
-                marker_color=[REJECT_ORANGE if value > 0 else (APPROVE_BLUE if value < 0 else "#64748B") for value in values],
+                marker_color=[FACTOR_YELLOW if value > 0 else (APPROVE_BLUE if value < 0 else "#64748B") for value in values],
                 customdata=[[description, escape(name)] for name, (_, description) in zip(names, details)],
                 hovertemplate="<b>%{y}</b><br>%{customdata[0]}<br><br>Contribution: %{x:+.4f} log-odds<br>Model field: %{customdata[1]}<extra></extra>",
             )
@@ -341,7 +342,7 @@ def render_prediction(pred: Prediction, *, database: bool = False) -> None:
         st.caption(
             ("Stored contributions; the local logistic model uses log-odds contributions, not SHAP. "
              if database else "Illustrative values, not measured SHAP output. ")
-            + "Color key: orange and positive values point toward reject; blue and negative values point toward approve. "
+            + "Color key: yellow and positive values point toward reject; blue and negative values point toward approve. "
             "Hover a bar for its meaning and application value. "
             "These contributions are not individual confidence scores."
         )
