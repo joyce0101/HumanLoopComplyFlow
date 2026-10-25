@@ -1,0 +1,9 @@
+# Install AFTER requirements.txt. Target: Windows desktop, Python 3.11 or 3.12.
+streamlit>=1.37,<2
+streamlit-webrtc>=0.76,<0.80
+mediapipe>=0.10.14,<0.11
+opencv-python>=4.8,<5
+mss>=10,<11
+dxcam[winrt]>=0.3,<0.4
+numpy>=1.26,<3
+pytest>=8,<10

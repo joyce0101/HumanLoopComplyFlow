@@ -12,6 +12,8 @@ from uuid import uuid4
 
 import streamlit as st
 
+from loopledger import verification_ui
+
 
 class StaleIntegrityError(ValueError):
     """The report no longer describes the chain result the user checked."""
@@ -131,6 +133,7 @@ def render_chain_status(chain: dict, source: str) -> None:
 
 def main() -> None:
     st.set_page_config(page_title="Compliance & Evidence | LoopLedger", page_icon="📄", layout="wide")
+    verification_ui.require_workspace_access()
     st.title("Compliance & Evidence")
     st.write("Check audit-chain consistency, preview a report, and download its evidence artifacts.")
     source = "Backend interfaces"
